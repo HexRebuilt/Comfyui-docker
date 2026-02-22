@@ -4,6 +4,14 @@ set -e
 COMFYUI_PATH="${COMFYUI_PATH:-/opt/ComfyUI}"
 AUTO_UPDATE="${AUTO_UPDATE:-true}"
 
+setup_huggingface() {
+    if [ -n "$HF_TOKEN" ]; then
+        echo "[$(date)] Configuring HuggingFace credentials..."
+        huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential 2>/dev/null || \
+            echo "[$(date)] Warning: huggingface-cli not available, skipping HF login"
+    fi
+}
+
 update_comfyui() {
     echo "[$(date)] Checking for ComfyUI updates..."
     cd "${COMFYUI_PATH}"
@@ -28,6 +36,8 @@ update_comfyui() {
 if [ "$AUTO_UPDATE" = "true" ]; then
     update_comfyui
 fi
+
+setup_huggingface
 
 echo "[$(date)] Starting cron daemon for scheduled updates..."
 cron
