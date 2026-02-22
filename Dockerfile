@@ -31,8 +31,7 @@ WORKDIR /opt
 RUN git clone https://github.com/Comfy-Org/ComfyUI.git ${COMFYUI_PATH}
 
 WORKDIR ${COMFYUI_PATH}
-RUN pip install -r requirements.txt \
-    && pip install huggingface-hub[cli]
+RUN pip install -r requirements.txt
 
 RUN mkdir -p models/checkpoints models/vae models/loras models/embeddings models/controlnet input output custom_nodes
 
