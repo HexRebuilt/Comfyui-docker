@@ -64,13 +64,6 @@ This entire setup was created using vibecoding methodology - an AI-assisted deve
 - No hardcoded secrets in code
 - API keys only loaded at runtime
 
-## System Requirements
-
-- **GPU**: NVIDIA RTX 2000 Ada Generation or compatible
-- **RAM**: 16GB+ recommended
-- **Storage**: 10GB+ for models and outputs
-- **OS**: Ubuntu 22.04 or compatible
-
 ## Troubleshooting
 
 ### GPU Not Detected
