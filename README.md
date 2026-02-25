@@ -14,7 +14,7 @@ A production-ready Docker setup for ComfyUI with auto-update, GPU support, and A
 
 1. **Clone and build:**
    ```bash
-   git clone https://github.com/yourusername/comfyui-docker
+   git clone https://github.com/HexRebuilt/comfyui-docker
    cd comfyui-docker
    docker compose build
    docker compose up -d
@@ -118,8 +118,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Support
 
-- Issues: https://github.com/yourusername/comfyui-docker/issues
-- Documentation: https://github.com/yourusername/comfyui-docker/wiki
+- Issues: https://github.com/HexRebuilt/comfyui-docker/issues
+- Documentation: https://github.com/HexRebuilt/comfyui-docker/wiki
 
 ---
 
