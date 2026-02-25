@@ -4,7 +4,7 @@ A production-ready Docker setup for ComfyUI with auto-update, GPU support, and A
 
 ## Features
 
-- **GPU Acceleration**: NVIDIA CUDA support with RTX 2000 Ada Generation
+- **GPU Acceleration**: NVIDIA CUDA support with RTX 2000 Ada
 - **Auto-Update**: Automatic git updates every 4 AM via cron
 - **API Integration**: HuggingFace and Civitai API key support via .env file
 - **Persistence**: Volume mounts for models, input, output, and custom nodes
