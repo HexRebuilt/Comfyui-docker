@@ -10,13 +10,14 @@ A production-ready Docker setup for ComfyUI with auto-update, GPU support, and A
 - **Persistence**: Volume mounts for models, input, output, and custom nodes
 - **Security**: No hardcoded secrets, all credentials via environment variables
 
-## Official Repository
+## UNofficial Repository
 
 This setup is based on the official ComfyUI repository: [https://github.com/Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI)
 
 ## Vibecoding Methodology
 
-This entire setup was created using vibecoding methodology - an AI-assisted development approach that combines automated code generation with human oversight to create production-ready software solutions.
+This entire setup was created using vibecoding methodology - an AI-assisted development approach that combines automated code generation with human oversight to create production-ready software solutions. The main need was to have a container for the main project that aumatically updates itself an is kept aligned with the main repo.
+Do you need this stuff as well? feel free to pull it and deploy it. I do not take any responsabilities if, or when, something breaks. If it breaks also for me, i'll probably fix it, but don't count on it. 
 
 ## Quick Start
 
@@ -63,6 +64,7 @@ This entire setup was created using vibecoding methodology - an AI-assisted deve
 - `.env` excluded from git via `.gitignore`
 - No hardcoded secrets in code
 - API keys only loaded at runtime
+- Do you want to access your UI remotely? use a VPN or a proxy provider. I don't trust most of the authentication pages on stuff that i deploy in my sistem, so neither should you
 
 ## Troubleshooting
 
