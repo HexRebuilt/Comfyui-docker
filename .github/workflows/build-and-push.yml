@@ -1,0 +1,125 @@
+name: Build and Push
+
+# Builds the container and publishes it to GHCR (ghcr.io), then scans the
+# published image and emits an SBOM + provenance attestation.
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Build, and publish only from master or a tag. A PR build proves the image
+  # still builds without granting it a registry path.
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+    outputs:
+      # Digest of the pushed manifest list, so the scan below is pinned even
+      # if `latest` moves between the build and the scan.
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      # Only push on non-PR events, and only from the default branch or a tag,
+      # so a fork or a side branch cannot publish to the registry.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # arm64 is included because the base image publishes aarch64 tags, but the
+      # GPU payload is irrelevant there; QEMU builds it for non-NVIDIA hosts.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          # `latest` is the mutable tag most people pull, so only move it when
+          # the build from the default branch actually succeeded.
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Produce an SBOM and a build provenance attestation for the image.
+          sbom: true
+          provenance: mode=max
+
+  # Scan what was actually published, not a locally rebuilt approximation.
+  scan:
+    name: Trivy (published image)
+    needs: build
+    # Nothing to scan on a PR: nothing was pushed.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Pull image by digest
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          # Digest ref: immune to `latest` moving while the scan runs.
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}
+          format: sarif
+          output: trivy-image.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          vuln-type: os,library
+          # These four are copies vendored inside pip and setuptools. Each
+          # entry is justified in .trivyignore.
+          ignorefile: .trivyignore
+
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image

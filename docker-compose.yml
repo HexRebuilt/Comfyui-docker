@@ -1,25 +1,54 @@
+# ComfyUI via the published GHCR image.
+#
+#   docker compose up -d
+#
+# Builds from source only if you first run `docker compose build`.
 services:
   comfyui:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: comfyui:latest
+    image: ghcr.io/hexrebuilt/comfyui-docker:latest
+    # Comment out to build locally from the Dockerfile instead of pulling.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: comfyui
     restart: unless-stopped
+
     ports:
       - "8188:8188"
+
+    # Optional: the service degrades gracefully without a .env file, so a
+    # fresh clone does not need one. Copy .env.example to .env to set keys.
     env_file:
-      - .env
+      - path: .env
+        required: false
+
     environment:
-      - AUTO_UPDATE=true
-      - UPDATE_SCHEDULE=0 4 * * *
-      - HF_TOKEN=${HF_TOKEN:-}
-      - CIVITAI_API_KEY=${CIVITAI_API_KEY:-}
+      AUTO_UPDATE: "${AUTO_UPDATE:-true}"
+      UPDATE_SCHEDULE: "${UPDATE_SCHEDULE:-0 4 * * *}"
+      # Set ENABLE_CRON=false to disable the in-container scheduler entirely.
+      UPDATE_INTERVAL: "${UPDATE_INTERVAL:-24h}"
+      ENABLE_CRON: "${ENABLE_CRON:-true}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      CIVITAI_API_KEY: "${CIVITAI_API_KEY:-}"
+
     volumes:
       - ./models:/opt/ComfyUI/models
       - ./input:/opt/ComfyUI/input
       - ./output:/opt/ComfyUI/output
       - ./custom_nodes:/opt/ComfyUI/custom_nodes
+
+    # ComfyUI needs no Linux capabilities. Dropping all of them is safe and
+    # meaningfully reduces the blast radius of a compromised custom node.
+    cap_drop:
+      - ALL
+
+    # Blocks setuid escalation inside the container.
+    security_opt:
+      - no-new-privileges:true
+
+    # ComfyUI writes to the bind-mounted model and output dirs.
+    user: "${PUID:-1000}:${PGID:-1000}"
+
     deploy:
       resources:
         reservations:
@@ -27,3 +56,11 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+    # Matches the image's HEALTHCHECK; disable so `depends_on: healthy` works.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8188/system_stats"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3

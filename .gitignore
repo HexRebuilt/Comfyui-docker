@@ -1,6 +1,7 @@
 models/
 input/
 output/
+custom_nodes/
 __pycache__/
 *.pyc
 .env

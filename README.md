@@ -1,129 +1,260 @@
-# ComfyUI Docker Setup
+# ComfyUI Docker
 
-A production-ready Docker setup for ComfyUI with auto-update, GPU support, and API key integration.
+A containerised ComfyUI with GPU acceleration, self-update, and CI-published images.
 
-## Features
-
-- **GPU Acceleration**: NVIDIA CUDA support with various NVIDIA GPUs
-- **Auto-Update**: Automatic git updates every 4 AM via cron
-- **API Integration**: HuggingFace and Civitai API key support via .env file
-- **Persistence**: Volume mounts for models, input, output, and custom nodes
-- **Security**: No hardcoded secrets, all credentials via environment variables
-
-## UNofficial Repository
-
-This setup is based on the official ComfyUI repository: [https://github.com/Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI)
-
-## Vibecoding Methodology
-
-This entire setup was created using vibecoding methodology - an AI-assisted development approach that combines automated code generation with human oversight to create production-ready software solutions. The main need was to have a container for the main project that aumatically updates itself an is kept aligned with the main repo.
-Do you need this stuff as well? feel free to pull it and deploy it. I do not take any responsabilities if, or when, something breaks. If it breaks also for me, i'll probably fix it, but don't count on it. 
+Based on the official ComfyUI repository: [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI).
 
 ## Quick Start
 
-1. **Clone and build:**
-   ```bash
-   git clone https://github.com/HexRebuilt/comfyui-docker
-   cd comfyui-docker
-   docker compose build
-   docker compose up -d
-   ```
+The image is published to GitHub Container Registry, so no build is needed:
 
-2. **Configure API keys:**
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your keys:
-   # HF_TOKEN=hf_xxxxx
-   # CIVITAI_API_KEY=xxxxx
-   ```
+```bash
+git clone https://github.com/HexRebuilt/Comfyui-docker.git
+cd Comfyui-docker
+docker compose up -d
+```
 
-3. **Access UI:**
-   - Open http://localhost:8188
+Then open <http://localhost:8188>.
+
+To set API keys, copy the example env file first:
+
+```bash
+cp .env.example .env
+$EDITOR .env
+docker compose up -d
+```
+
+Everything in `.env` is optional; the stack starts without it.
+
+To build from source instead:
+
+```bash
+docker compose build       # requires the build: block to be uncommented
+docker compose up -d
+```
+
+## Image
+
+```
+ghcr.io/hexrebuilt/comfyui-docker:latest
+```
+
+Tags follow the metadata-action convention: branch names, `vX.Y.Z` semver tags,
+`sha-abcdef1` for a specific commit, and `latest` for the default branch.
+
+Each published image carries an SBOM and a build provenance attestation. To
+verify provenance:
+
+```bash
+docker buildx imagetools inspect ghcr.io/hexrebuilt/comfyui-docker:latest
+```
+
+## GPU Support Matrix
+
+The base image is **CUDA 13.0 on Ubuntu 24.04**, with PyTorch built against
+`cu130`. This is not arbitrary — CUDA 12.7 and earlier cannot target several
+current GPUs at all:
+
+| GPU | Compute capability | CUDA 12.1 (previous base) | CUDA 13 / cu130 (current) |
+|-----|--------------------|---------------------------|--------------------------|
+| RTX 2000 Ada | sm_89 | PTX JIT only | native |
+| RTX 3090 / 4090 | sm_86 | native | native |
+| RTX 5080 / 5090, RTX 5070 Ti | sm_120 | **unsupported** | native |
+
+The previous image (`nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04`) pinned
+PyTorch to the `cu121` wheel index, which stopped at torch 2.5.1 in October
+2024. That combination cannot run Blackwell cards at all, and falls back to
+slow PTX JIT even on Ada. Separately, ComfyUI's `comfy-kitchen` dependency
+requires `cuBLASLt` 13.x, which only exists in CUDA 13+.
+
+If you are on a GPU older than sm_75 (Maxwell, Pascal), note that CUDA 13
+dropped support for those architectures. Such a card needs an older base image
+than the one shipped here.
+
+### Requirements
+
+- NVIDIA driver on the host. Blackwell (RTX 50-series) needs driver 570+;
+  Ada and Ampere need 525+. Check with `nvidia-smi`.
+- The [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
+  so `docker compose` can pass the GPU through.
 
 ## Configuration
 
-### Environment Variables
+All variables are optional. See `.env.example`.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `HF_TOKEN` | HuggingFace API token | - |
-| `CIVITAI_API_KEY` | Civitai API key | - |
-| `AUTO_UPDATE` | Enable auto-updates | `true` |
-| `UPDATE_SCHEDULE` | Cron schedule for updates | `0 4 * * *` |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTO_UPDATE` | `true` | Pull the latest ComfyUI at container start |
+| `UPDATE_INTERVAL` | `24h` | How often to re-check while running; any `sleep` duration (`30m`, `6h`, `1d`) |
+| `ENABLE_CRON` | `true` | Set `false` to skip the scheduler entirely |
+| `HF_TOKEN` | — | HuggingFace token for gated models |
+| `CIVITAI_API_KEY` | — | Read by custom nodes; ComfyUI core does not use it |
+| `PUID` / `PGID` | `1000` | uid:gid the container runs as, for bind-mount ownership |
 
-### Volumes
+The scheduler reads `UPDATE_INTERVAL` at startup, so changing it takes effect on
+the next `docker compose up -d` without a rebuild.
 
-- `./models:/opt/ComfyUI/models` - Model storage
-- `./input:/opt/ComfyUI/input` - Input files
-- `./output:/opt/ComfyUI/output` - Generated images
-- `./custom_nodes:/opt/ComfyUI/custom_nodes` - Custom nodes
+There is no cron daemon in the container. A real one requires root, and this
+image deliberately runs unprivileged; instead a background loop re-checks on
+`UPDATE_INTERVAL` and writes to `/var/log/comfyui-update.log`. The trade-off is
+that the interval is not a calendar schedule, so "every 24h" drifts by the
+uptime of the container. Restarting the container on a timer, or pulling a
+fresh image, is the more predictable option.
 
-## Security
+## Volumes
 
-- All credentials stored in `.env` file
-- `.env` excluded from git via `.gitignore`
-- No hardcoded secrets in code
-- API keys only loaded at runtime
-- Do you want to access your UI remotely? use a VPN or a proxy provider. I don't trust most of the authentication pages on stuff that i deploy in my sistem, so neither should you
+| Host path | Container path | Contents |
+|-----------|----------------|----------|
+| `./models` | `/opt/ComfyUI/models` | Checkpoints, VAEs, LoRAs, controlnet |
+| `./input` | `/opt/ComfyUI/input` | Workflow inputs |
+| `./output` | `/opt/ComfyUI/output` | Generated images |
+| `./custom_nodes` | `/opt/ComfyUI/custom_nodes` | Installed custom nodes |
 
-## Troubleshooting
+These are bind mounts, so the container runs as `PUID:PGID` to keep them
+writable. Set both to your host `id -u` / `id -g` if you hit permission errors.
 
-### GPU Not Detected
+## Auto-Update, and a Warning
+
+With `AUTO_UPDATE=true` the container runs `git fetch` and a `git merge
+--ff-only` against upstream ComfyUI, then re-syncs Python dependencies. This is
+the feature that keeps the image aligned with upstream, and it is also the
+largest supply-chain risk in this project:
+
+- It executes code fetched from the internet at runtime, on your host, as a user
+  who can write to `./output`.
+- It bypasses the immutable, scanned artifact that CI publishes to GHCR. An
+  auto-updating container is no longer the artifact that Trivy scanned.
+- A malicious or compromised upstream commit runs with your permissions.
+
+The update is a fast-forward only, so local edits to ComfyUI's own tree block
+the update rather than being silently overwritten, and a failed update leaves
+the running version untouched and still starts the container.
+
+For anything exposed beyond your LAN, set `AUTO_UPDATE=false` and update
+deliberately by pulling a new image. Also treat custom nodes as arbitrary code:
+they are Python and run in-process.
+
+## Security Posture
+
+- Runs as an unprivileged user, not root.
+- `cap_drop: ALL` and `no-new-privileges:true` in the compose file.
+- No credentials baked into the image; `.env` is git- and docker-ignored.
+- Third-party downloads in the build (none currently) are sha256-verified.
+- CI runs hadolint, shellcheck, gitleaks, Trivy (filesystem and published
+  image), and OpenSSF Scorecard on every push.
+- Published images carry an SBOM and provenance attestation.
+
+This container exposes an unauthenticated ComfyUI UI. Do not publish port 8188
+to the internet. Put it behind a VPN or an authenticating reverse proxy.
+
+## Known Scan Noise
+
+Trivy reports four findings on every image scan, suppressed in `.trivyignore`:
+`CVE-2025-47273` (setuptools), `CVE-2026-97687` / `CVE-2026-97689` (urllib3),
+and `GHSA-6v7p-g79w-8964` (msgpack). All four are copies vendored *inside* pip
+and setuptools rather than installed packages, so pip cannot update them
+independently. Confirmed against the built image: `import msgpack` fails, and
+the installed urllib3 and setuptools are already patched. Each suppression is
+justified in the ignore file; remove them once pip or setuptools ships fixes.
+
+## Health and Monitoring
+
 ```bash
-# Check GPU status
-docker exec comfyui nvidia-smi
-
-# Ensure NVIDIA drivers installed
-sudo apt install nvidia-driver-470
-```
-
-### Auto-Update Not Working
-```bash
-# Check cron logs
-docker exec comfyui cat /var/log/comfyui-update.log
-
-# Restart cron service
-docker exec comfyui service cron restart
-```
-
-## API Key Setup
-
-### HuggingFace
-1. Get token from https://huggingface.co/settings/tokens
-2. Add to `.env`: `HF_TOKEN=hf_xxxxx`
-3. Auto-login on startup
-
-### Civitai
-1. Get API key from https://civitai.com/settings/api
-2. Add to `.env`: `CIVITAI_API_KEY=xxxxx`
-
-## Monitoring
-
-### Logs
-```bash
-docker logs comfyui --tail 50 -f
-```
-
-### Resource Usage
-```bash
+docker compose ps                       # health status
+docker compose logs -f comfyui
 docker stats comfyui
 ```
 
-## Backup Strategy
+The image declares a `HEALTHCHECK` against `/system_stats`, a cheap
+side-effect-free endpoint. The compose file repeats it so `depends_on:
+condition: service_healthy` works.
 
-1. **Models**: Regular rsync to backup location
-2. **Outputs**: Automated cleanup for old files
-3. **Configuration**: Git version control for all configs
+Check update history:
+
+```bash
+docker compose exec comfyui cat /var/log/comfyui-update.log
+```
+
+## Troubleshooting
+
+### GPU not detected
+
+```bash
+docker compose exec comfyui nvidia-smi
+docker compose exec comfyui python -c \
+  "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+If `nvidia-smi` fails inside the container, the NVIDIA Container Toolkit is not
+installed or the daemon was not restarted after installing it. If `nvidia-smi`
+works but torch reports `False`, the host driver is older than your GPU
+requires — see the support matrix above.
+
+### Permission errors on ./models or ./output
+
+The container runs as `PUID:PGID` (default 1000). Match them to your host user:
+
+```bash
+echo "PUID=$(id -u)" >> .env
+echo "PGID=$(id -g)" >> .env
+docker compose up -d --force-recreate
+```
+
+### Auto-update not running
+
+```bash
+docker compose logs comfyui | grep -i 'scheduled\|updating'
+docker compose exec comfyui cat /var/log/comfyui-update.log
+```
+
+No "Scheduled updates every ..." line means `AUTO_UPDATE`, `ENABLE_CRON`, or
+`UPDATE_INTERVAL` is unset. Updates are skipped without failing the container if
+the fetch fails or the tree has local modifications, so check the log rather
+than assuming it is broken.
+
+### ComfyUI will not start
+
+```bash
+docker compose logs comfyui | tail -50
+```
+
+Most often a dependency sync failure after an update, which the entrypoint
+logs and then starts anyway. Pinning to a known-good image is the fastest
+recovery:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+## Development
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | Image build; `COMFYUI_REF` and `TORCH_INDEX_URL` are build args |
+| `docker-entrypoint.sh` | Startup: update, HF auth, scheduler, exec |
+| `docker-compose.yml` | Runtime configuration |
+| `.github/workflows/security.yml` | Lint, secret scan, Trivy, Scorecard |
+| `.github/workflows/build-and-push.yml` | Build, publish to GHCR, scan, attest |
+
+Before pushing a change, run the same checks CI does:
+
+```bash
+shellcheck docker-entrypoint.sh
+hadolint Dockerfile
+actionlint
+docker compose config --quiet
+```
+
+`COMFYUI_REF` pins the ComfyUI branch or tag baked into the image. It defaults
+to `master`; set it to a release tag such as `v0.38.0` for a reproducible build.
+
+## Vibecoding Methodology
+
+This setup was built with AI-assisted development, under human review. It is
+provided as-is with no warranty. I do not take responsibility for anything that
+breaks; if it breaks for me too, I will probably fix it, but do not count on
+that.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-- Issues: https://github.com/HexRebuilt/comfyui-docker/issues
-- Documentation: https://github.com/HexRebuilt/comfyui-docker/wiki
-
----
-
-**Note**: This setup is optimized for production use with security and maintainability in mind.
+MIT — see [LICENSE](LICENSE).

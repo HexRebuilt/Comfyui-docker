@@ -1,0 +1,27 @@
+# Keep build context small and prevent secrets from entering the image.
+.git
+.github
+.gitignore
+
+# Never ship local credentials or config into a build context.
+.env
+.env.*
+!.env.example
+
+# Model weights and user data: these are mounted at runtime, never baked in.
+models
+input
+output
+custom_nodes
+
+# Docs and CI config are irrelevant to the image layer.
+README.md
+SBOM.md
+LICENSE
+docker-compose.yml
+
+# VCS/editor/OS noise.
+**/.DS_Store
+**/*.swp
+**/.idea
+**/.vscode

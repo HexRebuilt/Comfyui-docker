@@ -1,0 +1,25 @@
+# Trivy findings suppressed in the published-image scan.
+#
+# All four are copies vendored *inside* pip and setuptools, which pip cannot
+# update independently of its parent. They are not importable top-level
+# packages and are not reachable from ComfyUI code.
+#
+# Verified against the built image:
+#   - `import msgpack` fails; the only copy is pip/_vendor/msgpack.
+#   - urllib3 is installed at 2.8.0; 2.7.0 is a vendored copy inside setuptools.
+#   - setuptools is installed at 81.0.0 (patched); 70.3.0 is vendored.
+#
+# Revisit when pip/setuptools ship a release that carries these updates, and
+# remove any entry whose installed version has since been fixed for real.
+
+# Path traversal (CVE-2025-47273). Real setuptools is 81.0.0; fixed in 78.1.1.
+CVE-2025-47273
+
+# HTTPS proxy TLS interception + chunk-parser DoS (CVE-2026-97687, CVE-2026-97689).
+# Vendored inside setuptools; the installed urllib3 is already 2.8.0.
+CVE-2026-97687
+CVE-2026-97689
+
+# msgpack out-of-bounds read on Unpacker reuse (GHSA-6v7p-g79w-8964).
+# Vendored inside pip; not installed as a package.
+GHSA-6v7p-g79w-8964
