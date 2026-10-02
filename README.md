@@ -248,17 +248,30 @@ It is **stdio**, so it runs on your host and needs no GPU of its own. Because
 port 8188 is published, the default `127.0.0.1:8188` already points at the
 container.
 
-```bash
-uv tool install "comfy-cli>=1.14.0" && uv tool install comfy-mcp
-export PATH="$HOME/.local/bin:$PATH"
-claude mcp add comfy-mcp --env COMFY_BIN="$(command -v comfy)" -- comfy-mcp
+It ships as its own 216 MB image (no CUDA, no GPU), so it is not baked into the
+11 GB ComfyUI one:
+
+```
+ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
 ```
 
-Verified against this image: handshake clean, `system_stats` sees both GPUs,
-`nodes` resolves from the live install. A handful of tools manage a *local*
-ComfyUI process and do not apply to a container — see
-**[docs/MCP.md](docs/MCP.md)** for the full supported/unsupported split and setup
-details.
+Point an MCP client at the compose service — it reaches ComfyUI by service name,
+with no host port involved:
+
+```bash
+docker compose --profile mcp pull
+claude mcp add comfy-mcp -- docker compose --profile mcp run --rm -T comfy-mcp
+```
+
+CI rebuilds that image every Monday, so `pull` keeps it current. It deliberately
+does not self-update at runtime the way ComfyUI does: it is spawned fresh per
+MCP session, and swapping code under a live session is the failure mode to avoid.
+
+Verified end-to-end from the published image: handshake clean, `system_stats`
+reports ComfyUI 0.38.0, 484 templates listed. A handful of tools manage a
+*local* ComfyUI process and do not apply to a container — see
+**[docs/MCP.md](docs/MCP.md)** for the full supported/unsupported split, the
+host-install alternative, and setup details.
 
 ## Development
 
@@ -270,6 +283,7 @@ details.
 | `.github/workflows/security.yml` | Lint, secret scan, Trivy, Scorecard |
 | `.github/workflows/build-and-push.yml` | Build, publish to GHCR, scan, attest |
 | `comfyui-update.sh` | The updater, also callable by hand |
+| `Dockerfile.mcp` | The MCP server image (separate, AGPL, no CUDA) |
 | `docs/MCP.md` | Driving the container from an AI agent |
 | `SBOM.md` | Verified component versions and known scan noise |
 

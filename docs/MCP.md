@@ -22,7 +22,9 @@ bake it in.
 
 ## Verified against this image
 
-Tested on this exact container (ComfyUI 0.38.0, torch 2.11.0+cu130, dual GPU):
+Tested both ways — containerised via `docker compose --profile mcp run`, and
+installed on the host — against this exact ComfyUI (0.38.0, torch 2.11.0+cu130,
+dual GPU):
 
 | Check | Result |
 |-------|--------|
@@ -35,11 +37,105 @@ Tested on this exact container (ComfyUI 0.38.0, torch 2.11.0+cu130, dual GPU):
 | `search_models` | OK — returned a well-formed empty result (no models installed) |
 | `generate_image` | Reached ComfyUI, which replied `no_checkpoint_available` |
 
-That last row is the expected result on a fresh checkout: the submit path works,
-there is just no checkpoint yet. Once `./models/checkpoints` holds a model,
-generation works.
+The containerised run was verified end-to-end from the published image:
+`docker compose --profile mcp run --rm -T comfy-mcp` completed the handshake,
+reported ComfyUI 0.38.0 via `system_stats`, and listed 484 templates.
 
-## Install
+That `no_checkpoint_available` row is the expected result on a fresh checkout:
+the submit path works, there is just no checkpoint yet. Once
+`./models/checkpoints` holds a model, generation works.
+
+Two container-only failure modes worth knowing, because neither is visible when
+the server runs on your own machine:
+
+- Running as an account whose `HOME` is unwritable (`/nonexistent` for UID 65534)
+  makes comfy-cli fail to write `~/.config/comfy-cli`. Every tool call errors
+  with `PermissionError` while the MCP handshake still appears to succeed.
+  `Dockerfile.mcp` creates a real user and `HOME` for this reason.
+- `python:slim` ships no `git`, which comfy-cli shells out to. Without it,
+  workspace-backed tools crash rather than degrading.
+
+## Option A: containerised (recommended)
+
+The server ships as its own small image, built from `Dockerfile.mcp`:
+
+```
+ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
+```
+
+216 MB, `python:3.12-slim`, no CUDA and no GPU. It is deliberately **not** baked
+into the 11 GB ComfyUI image: it needs none of that runtime, and it is
+AGPL-3.0-or-later while the ComfyUI image is MIT.
+
+It is already in `docker-compose.yml` behind the `mcp` profile, so a plain
+`docker compose up` is unaffected:
+
+```bash
+docker compose --profile mcp pull        # refresh
+docker compose --profile mcp run --rm comfy-mcp
+```
+
+To drive it from an MCP client, give the client a `docker compose run` command.
+It reaches ComfyUI by service name over the compose network, so no host port is
+involved.
+
+### Claude Code
+
+```bash
+claude mcp add comfy-mcp -- docker compose --profile mcp run --rm -T comfy-mcp
+```
+
+### Claude Desktop
+
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "comfy-mcp": {
+      "command": "docker",
+      "args": [
+        "compose", "--profile", "mcp", "-f",
+        "/absolute/path/to/Comfyui-docker/docker-compose.yml",
+        "run", "--rm", "-T", "comfy-mcp"
+      ]
+    }
+  }
+}
+```
+
+Run the command from the repository directory so compose finds the file, or pass
+`-f` with an absolute path as above. `-T` keeps stdin attached, which is the
+MCP stream; without it the server sees a closed pipe and exits immediately.
+
+### Staying current
+
+A scheduled CI run rebuilds and re-pushes this image every Monday, so it tracks
+`comfy-mcp` and `comfy-cli` upstream releases without anyone pushing a commit.
+A `docker compose --profile mcp pull` is all that is needed.
+
+This image deliberately does **not** self-update at runtime the way the ComfyUI
+image does. It is spawned fresh for every MCP session, and swapping its own code
+underneath a live session is precisely the failure mode the scheduled rebuild
+avoids. ComfyUI, by contrast, is a long-running process whose in-place update
+is well defined.
+
+Note the two images tag `latest` differently, on purpose:
+
+| Image | `latest` means |
+|-------|----------------|
+| `comfyui-docker` | newest **release** (moved by pushing a `v*` tag) |
+| `comfyui-docker-mcp` | newest **build** of the default branch, including the weekly refresh |
+
+A release should never silently swap the code an agent is driving mid-session,
+whereas the MCP server is disposable and is expected to be current.
+
+## Option B: on the host
+
+Install it directly instead. Use this if you would rather not add a container to
+the loop, or if your MCP client already manages Python environments well.
+
+### Install
 
 The server runs on your **host**, as a subprocess your AI client launches. It is
 not a container and needs no GPU.
@@ -78,7 +174,7 @@ comfy --version
 comfy-mcp --help        # the server. Do NOT run it bare to test: it is stdio
 ```
 
-## Point it at the container
+### Point it at the container
 
 ComfyUI must be up first:
 
@@ -91,12 +187,12 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8188/system_stats   # 
 server defaults to, so usually no configuration is needed. Set
 `COMFY_LOCAL_URL` only if you moved the port.
 
-## Client configuration
+### Client configuration
 
 `COMFY_BIN` is not optional in practice: MCP clients launch the server with their
 own environment, which often does not include your shell `PATH`.
 
-### Claude Code
+#### Claude Code
 
 `--env` must come before the `--` separator:
 
@@ -104,7 +200,7 @@ own environment, which often does not include your shell `PATH`.
 claude mcp add comfy-mcp --env COMFY_BIN="$(command -v comfy)" -- comfy-mcp
 ```
 
-### Claude Desktop
+#### Claude Desktop
 
 `claude_desktop_config.json`:
 
@@ -121,7 +217,7 @@ claude mcp add comfy-mcp --env COMFY_BIN="$(command -v comfy)" -- comfy-mcp
 }
 ```
 
-### Cursor
+#### Cursor
 
 `~/.cursor/mcp.json`:
 
@@ -209,11 +305,16 @@ Two things to weigh, both real:
 | Tool list empty in the client | Restart or reload the client after editing its config. |
 | Generated files not where expected | Use `fetch_outputs(prompt_id, out_dir)` and name the directory. |
 
-## Not in this repository
+## Why a separate image
 
-Deliberately not wired into `docker-compose.yml`:
+Worth stating explicitly, since it looks like an odd choice:
 
-- The server is **stdio**, spawned by the AI client on the host. Running it as a
-  compose service would produce nothing useful — no client would connect to it.
-- Baking it into this image would pull an AGPL component into a published
-  artifact for no benefit.
+- The MCP server is **stdio**. It is spawned per session by the AI client, not
+  run as a long-lived service, so there is no port for a compose service to
+  expose. That is why it sits behind the `mcp` profile with `stdin_open` rather
+  than being started by a plain `docker compose up`.
+- It needs no GPU and no CUDA, so it is 216 MB instead of 11 GB.
+- It is AGPL-3.0-or-later OR Commercial, while the ComfyUI image here is MIT.
+  Keeping it separate avoids shipping a copyleft component inside this project's
+  published artifact. The upstream source, and this repository's
+  `Dockerfile.mcp`, are the corresponding source for that image.
