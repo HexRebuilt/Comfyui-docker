@@ -137,3 +137,51 @@ else
     echo "::error::The Dockerfile bump was NOT applied. ${pr_url}" >&2
     exit 1
 fi
+
+# --- cut a release so `latest` actually moves ------------------------------
+# Without this the monthly alignment is decorative for anyone pulling :latest.
+# The ComfyUI image only tags `latest` from a v* tag, and the bump merges to
+# master, so a merged bump alone leaves `latest` on the previous release.
+#
+# Two details that are easy to get wrong:
+#   - The tag must point at the MERGED commit on master, not the branch head.
+#     The PR is squash-merged, so master gets a new sha that did not exist when
+#     the branch was pushed.
+#   - Only cut a release when a bump actually landed. Cutting one monthly
+#     regardless would push a new release for every documentation commit.
+next_patch() {
+    local last
+    last="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)"
+    if [ -z "${last}" ]; then
+        printf 'v1.0.0'
+        return
+    fi
+    # Strip the leading v before splitting: awk on "v1.0.0" with FS=. yields
+    # ["v1","0","0"], so without stripping the major lands in $1 with the v.
+    printf '%s\n' "${last}" | sed -E 's/^v//' \
+        | awk -F. '{printf "v%s.%s.%d\n", $1, $2, $3 + 1}'
+}
+
+cut_release() {
+    git fetch --quiet origin master --tags
+    # Squash merge: the commit on master is not the branch head we pushed.
+    local master_sha
+    master_sha="$(git rev-parse origin/master)"
+    local tag
+    tag="$(next_patch)"
+
+    echo "Cutting ${tag} on ${master_sha:0:7} (master) so \`latest\` advances."
+    git tag -a "${tag}" -F - "${master_sha}" <<EOF
+Automated release from the monthly upstream alignment.
+
+- nvidia/cuda: ${PINNED_CUDA} -> ${CUDA_TARGET:-unchanged}
+- torch: ${PINNED_TORCH} -> ${TORCH_TARGET:-unchanged}${TORCHVISION_TARGET:+ (torchvision ${TORCHVISION_TARGET})}
+
+Merged from #${pr_number} after every check passed. Pushing this tag makes the
+build-and-push workflow publish ${tag}, ${tag#v}, and \`latest\`.
+EOF
+    git push origin "${tag}"
+    echo "Released ${tag}."
+}
+
+cut_release
