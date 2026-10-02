@@ -318,20 +318,39 @@ that can silently break a GPU architecture — the cu121 base in the original
 image could not target sm_120 at all — so it wants a rebuild and a check on real
 hardware rather than a bot doing it on a schedule.
 
-### The monthly scan
+### The monthly alignment
 
-On the 1st of each month, `dependency-watch.yml` compares the pinned versions
-against upstream and, **only if something is behind**, opens or updates a single
-tracking issue. It never commits and never modifies this repository. If you close
-the issue and nothing has drifted since, no new one is filed.
+On the 1st of each month, `dependency-watch.yml` runs two jobs:
 
-Run it yourself any time:
+1. **Report.** Compares the pinned versions against upstream and, if something is
+   behind, opens or updates a single tracking issue. It never touches the default
+   branch.
+2. **Align.** Opens a PR bumping the pins, then waits for CI and merges it
+   **only if every check passed**. A red or still-running build leaves the PR
+   open, so a bad bump cannot land.
+
+The bump respects real constraints. `torchaudio` is the ceiling on torch — on the
+cu130 index torch is at 2.14.1 while torchaudio stops at 2.11.0, so taking the
+newer torch would mean dropping torchaudio entirely. The matching `torchvision`
+is resolved by pip rather than guessed.
+
+What stops a bad combination merging is a guard in the Dockerfile: **the build
+fails unless `libtorch_cuda.so` contains `sm_86` and `sm_120`.** That is the exact
+check that would have caught the original cu121 image, which had zero `sm_120`.
+(`torch.cuda.get_arch_list()` is useless here — it returns `[]` on a CPU-only
+runner — so the guard reads the compiled fatbin strings instead.)
+
+You can run each part locally:
 
 ```bash
-./scripts/dependency-check.sh
+./scripts/dependency-check.sh    # the report table
+./scripts/dependency-targets.sh  # what a safe bump would be
+./scripts/align-upstream.sh      # dry run
 ```
 
-It prints the same table and exits with a `drift=0` or `drift=1` line.
+One caveat worth stating: CI proves the image builds, scans clean and can target
+those GPU architectures. It cannot prove your GPU is happy — that still needs a
+look on real hardware after the monthly merge.
 
 Note the torch row: PyTorch ships far ahead of `torchaudio` on the cu130 index
 (torch 2.14.1 vs torchaudio 2.11.0), and taking the newer torch means dropping
