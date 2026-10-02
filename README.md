@@ -39,6 +39,10 @@ docker compose up -d
 ghcr.io/hexrebuilt/comfyui-docker:latest
 ```
 
+`linux/amd64` only. The image exists to run CUDA on an NVIDIA GPU, and there is
+no useful arm64 target for that: aarch64 Jetson needs a different base image
+(`nvcr.io/nvidia/l4t`) and Apple Silicon cannot run CUDA at all.
+
 Tags follow the metadata-action convention: branch names, `vX.Y.Z` semver tags,
 `sha-abcdef1` for a specific commit, and `latest` for the default branch.
 

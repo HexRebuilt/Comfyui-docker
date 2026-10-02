@@ -35,9 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4.4.0
-
+      # No QEMU setup: the build is amd64-only (see the platforms note below),
+      # so no emulation is required.
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4.4.1
 
@@ -64,15 +63,25 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # arm64 is included because the base image publishes aarch64 tags, but the
-      # GPU payload is irrelevant there; QEMU builds it for non-NVIDIA hosts.
+      # amd64 only, deliberately.
+      #
+      # This image exists to run CUDA on an NVIDIA GPU, and there is no useful
+      # arm64 target for that: aarch64 Jetson uses a different base image
+      # (nvcr.io/nvidia/l4t), and Apple Silicon cannot run CUDA at all.
+      #
+      # An arm64 build was also failing outright. torch's
+      # nvidia-cusparselt-cu13 dependency ships only a legacy-tagged
+      # manylinux2014_aarch64 wheel, which pip will not select under QEMU
+      # emulation ("not supported on this platform"), so `pip check` failed and
+      # took the build down. Emulating a CUDA stack for a platform that cannot
+      # use it is wasted runner time as well.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           # `latest` is the mutable tag most people pull, so only move it when
           # the build from the default branch actually succeeded.
