@@ -2,6 +2,9 @@
 
 A containerised ComfyUI with GPU acceleration, self-update, and CI-published images.
 
+Drive it from an AI agent over MCP with the official
+[`Comfy-Org/comfy-mcp`](docs/MCP.md).
+
 Based on the official ComfyUI repository: [Comfy-Org/ComfyUI](https://github.com/Comfy-Org/ComfyUI).
 
 ## Quick Start
@@ -235,6 +238,28 @@ recovery:
 docker compose pull && docker compose up -d
 ```
 
+## MCP / AI Agents
+
+The official [`Comfy-Org/comfy-mcp`](https://github.com/Comfy-Org/comfy-mcp) drives
+this container: 39 tools covering generation, job monitoring, and introspection of
+the nodes, models and templates your install actually has.
+
+It is **stdio**, so it runs on your host and needs no GPU of its own. Because
+port 8188 is published, the default `127.0.0.1:8188` already points at the
+container.
+
+```bash
+uv tool install "comfy-cli>=1.14.0" && uv tool install comfy-mcp
+export PATH="$HOME/.local/bin:$PATH"
+claude mcp add comfy-mcp --env COMFY_BIN="$(command -v comfy)" -- comfy-mcp
+```
+
+Verified against this image: handshake clean, `system_stats` sees both GPUs,
+`nodes` resolves from the live install. A handful of tools manage a *local*
+ComfyUI process and do not apply to a container — see
+**[docs/MCP.md](docs/MCP.md)** for the full supported/unsupported split and setup
+details.
+
 ## Development
 
 | File | Purpose |
@@ -244,6 +269,9 @@ docker compose pull && docker compose up -d
 | `docker-compose.yml` | Runtime configuration |
 | `.github/workflows/security.yml` | Lint, secret scan, Trivy, Scorecard |
 | `.github/workflows/build-and-push.yml` | Build, publish to GHCR, scan, attest |
+| `comfyui-update.sh` | The updater, also callable by hand |
+| `docs/MCP.md` | Driving the container from an AI agent |
+| `SBOM.md` | Verified component versions and known scan noise |
 
 Before pushing a change, run the same checks CI does:
 
