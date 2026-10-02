@@ -83,6 +83,8 @@ services:
     depends_on:
       comfyui:
         condition: service_healthy
+    ports:
+      - 8188:8188
     environment:
       # Service-name addressing over the compose network; no host port needed.
       COMFYUI_URL: http://comfyui:8188
