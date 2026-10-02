@@ -1,0 +1,91 @@
+name: Dependency Watch
+
+# Monthly check for upstream drift. Read-only: it reports, it never commits and
+# never changes this repository.
+#
+# Why this exists. Most of what this project consumes already arrives on its own:
+#
+#   ComfyUI           -> AUTO_UPDATE=true inside the container tracks master
+#   comfy-mcp / cli   -> the MCP container upgrades at startup, plus a weekly
+#                        rebuild of its image
+#
+# What does NOT arrive on its own is everything the Dockerfile *pins*: the CUDA
+# base image tag and the torch/torchvision/torchaudio versions. Those need a
+# rebuild and a hardware check, which is a judgement call rather than something
+# to automate -- a torch bump is exactly the change that can silently break a GPU
+# architecture. This workflow's job is to notice and say so, not to act.
+#
+# The comparison logic lives in scripts/dependency-check.sh so it can be run and
+# tested locally:  ./scripts/dependency-check.sh
+on:
+  schedule:
+    # 06:23 on the 1st of each month, UTC. Deliberately an odd minute: everyone
+    # who picks cron for a monthly job picks :00, where GitHub's scheduled runs
+    # queue.
+    - cron: '23 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Only used to open or update the single tracking issue.
+  issues: write
+
+concurrency:
+  group: dependency-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Check upstream versions
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Compare pinned versions against upstream
+        id: check
+        run: |
+          set -uo pipefail
+          # The script writes its table to stdout and its prose summary to
+          # $GITHUB_STEP_SUMMARY, then prints a trailing "drift=0|1" line.
+          ./scripts/dependency-check.sh | tee /tmp/check.out
+          drift="$(grep -oE '^drift=[01]$' /tmp/check.out | tail -1 | cut -d= -f2)"
+          echo "drift=${drift:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: File or update the tracking issue
+        if: steps.check.outputs.drift == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: Upstream updates available
+        run: |
+          set -uo pipefail
+
+          # The table, minus the drift= sentinel the script prints.
+          grep -vE '^drift=[01]$' /tmp/check.out > /tmp/table.md
+
+          {
+            cat /tmp/table.md
+            echo ""
+            echo "ComfyUI, comfy-mcp and comfy-cli update themselves; the two"
+            echo "flagged here are pinned in the Dockerfile and need a rebuild plus"
+            echo "a GPU check before merging."
+            echo ""
+            echo "_Automated monthly check. Close this once the pins are updated;"
+            echo "the next scan that finds drift replaces this body._"
+          } > /tmp/issue.md
+
+          # Update the existing issue rather than opening a new one every month.
+          # Matched in shell rather than with `env.TITLE` inside gh's --jq, which
+          # is not portable across gh versions.
+          number=""
+          while IFS=$'\t' read -r num t; do
+            if [ "$t" = "$ISSUE_TITLE" ]; then number="$num"; break; fi
+          done < <(gh issue list --state open --limit 100 --json number,title \
+                   --jq '.[] | "\(.number)\t\(.title)"')
+
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file /tmp/issue.md >/dev/null
+            echo "Updated issue #${number}"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body-file /tmp/issue.md >/dev/null
+            echo "Opened a new tracking issue"
+          fi
