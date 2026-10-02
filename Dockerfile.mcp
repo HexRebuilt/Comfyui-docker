@@ -16,11 +16,16 @@
 FROM python:3.12-slim
 
 ARG COMFY_CLI_MIN=1.14.0
-# Unpinned so the scheduled rebuild in CI picks up upstream releases. This image
-# is rebuilt on a schedule rather than self-updating at runtime, so an
-# untested version can never land in a running session.
+# Unpinned: the image ships a baseline, and mcp-entrypoint.sh upgrades both to
+# the latest PyPI release at container start. CI also rebuilds weekly, so a
+# fresh pull is also a refresh.
 ARG COMFY_MCP_SPEC=comfy-mcp
 ARG COMFY_CLI_SPEC=comfy-cli>=${COMFY_CLI_MIN}
+# Shallow clones of the ComfyUI workspace. Only the git metadata and sources are
+# needed so comfy-cli can resolve a workspace path; no models, no pip install.
+# Measured at ~2 MB total, not the ~1 GB a full ComfyUI checkout would suggest.
+ARG COMFYUI_REF=master
+ARG COMFYUI_MANAGER_REF=main
 
 # git is not optional: comfy-cli shells out to it, and its absence makes
 # workspace-backed tools crash rather than degrade.
@@ -43,6 +48,28 @@ RUN pip install --no-cache-dir ${COMFY_CLI_SPEC} ${COMFY_MCP_SPEC} \
     && mkdir -p /home/comfy/.config /home/comfy/.cache \
     && chown -R 1000:1000 /home/comfy
 
+# A ComfyUI workspace for comfy-cli to resolve. Without it, most comfy-cli
+# commands abort with "not a valid ComfyUI workspace" before doing anything,
+# even though they only need HTTP to reach the running server.
+#
+# ComfyUI-Manager is cloned because comfy-cli's node commands look for its
+# `cm_cli` module. NOTE: current ComfyUI-Manager ships `cm-cli.py`, not an
+# importable `cm_cli` module, so node introspection still fails with
+# "ComfyUI-Manager not found". That is an upstream mismatch between comfy-cli
+# and ComfyUI-Manager, not something this image can fix; see docs/MCP.md.
+RUN git clone --quiet --depth 1 --branch "${COMFYUI_REF}" \
+        https://github.com/Comfy-Org/ComfyUI.git /home/comfy/ComfyUI-ws \
+    && git clone --quiet --depth 1 --branch "${COMFYUI_MANAGER_REF}" \
+        https://github.com/Comfy-Org/ComfyUI-Manager.git \
+        /home/comfy/ComfyUI-ws/custom_nodes/ComfyUI-Manager \
+    && chown -R 1000:1000 /home/comfy/ComfyUI-ws
+
+# Path to the baked workspace. Exported so tooling can reference it, and applied
+# by mcp-entrypoint.sh at startup -- NOT here, because comfy-cli writes its
+# config to $HOME/.config and HOME is only correct from the next line on. Running
+# set-default as root at build time silently wrote the config to /root instead.
+ENV COMFY_WORKSPACE=/home/comfy/ComfyUI-ws
+
 ENV HOME=/home/comfy \
     XDG_CONFIG_HOME=/home/comfy/.config \
     XDG_CACHE_HOME=/home/comfy/.cache \
@@ -53,12 +80,21 @@ ENV HOME=/home/comfy \
     # system_stats/free_memory pointed at the same ComfyUI the run tools submit
     # to, which upstream documents as NOT following COMFYUI_URL on its own.
     COMFY_LOCAL_URL=http://comfyui:8188 \
+    AUTO_UPDATE=true \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+COPY --chmod=0755 mcp-entrypoint.sh /usr/local/bin/mcp-entrypoint.sh
+
+# The updater may reinstall packages into /usr/local at startup, so
+# site-packages must be writable by the runtime user, and the update log must
+# already exist and be owned by it.
+RUN touch /var/log/mcp-update.log \
+    && chown 1000:1000 /var/log/mcp-update.log \
+    && chown -R 1000:1000 /usr/local/lib/python3.12/site-packages
 
 USER 1000:1000
 WORKDIR /home/comfy
 
-# The server itself. Override with `docker run <image> --version` to see what
-# is installed, or `comfy --version` via `run --entrypoint comfy`.
-ENTRYPOINT ["comfy-mcp"]
+ENTRYPOINT ["/usr/local/bin/mcp-entrypoint.sh"]

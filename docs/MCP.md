@@ -110,15 +110,19 @@ MCP stream; without it the server sees a closed pipe and exits immediately.
 
 ### Staying current
 
-A scheduled CI run rebuilds and re-pushes this image every Monday, so it tracks
-`comfy-mcp` and `comfy-cli` upstream releases without anyone pushing a commit.
-A `docker compose --profile mcp pull` is all that is needed.
+Two independent mechanisms, so you get fresh code either way:
 
-This image deliberately does **not** self-update at runtime the way the ComfyUI
-image does. It is spawned fresh for every MCP session, and swapping its own code
-underneath a live session is precisely the failure mode the scheduled rebuild
-avoids. ComfyUI, by contrast, is a long-running process whose in-place update
-is well defined.
+- **At startup.** `mcp-entrypoint.sh` compares the installed `comfy-mcp` and
+  `comfy-cli` against the latest release on PyPI and upgrades only what is
+  behind. A start costs two small HTTP requests, not a dependency resolve.
+- **Weekly.** A scheduled CI run rebuilds and re-pushes the image every Monday,
+  so `docker compose --profile mcp pull` also refreshes it.
+
+Note *when* the startup update runs: before the MCP handshake, never during a
+session. This container is spawned fresh for every session, so each one runs a
+known-current version without any risk of swapping code underneath a live
+conversation. That is the meaningful difference from the ComfyUI image, which is
+a single long-running process and updates in place.
 
 Note the two images tag `latest` differently, on purpose:
 
@@ -257,6 +261,42 @@ local files, which a container deliberately does not expose:
 | `get_logs` | `docker compose logs comfyui` instead. |
 | `install_node`, `update_comfyui`, `switch_comfyui_version` | Writes to a local checkout. Our updater already does the equivalent inside the image. |
 | `download_model` | Writes to the CLI's own workspace models dir, **not** the container's `./models`. See below. |
+| `nodes`, `node_dependencies`, `workflow_deps` | Need ComfyUI-Manager's `cm_cli` module. See below. |
+
+### Node introspection: an upstream limitation
+
+`nodes` and friends are the one group that cannot work here, and the reason is
+worth being precise about rather than hand-waving.
+
+`comfy-mcp` bundles a ComfyUI workspace so `comfy which` and every command that
+resolves a path have something to resolve — that part works. Node listing then
+fails with:
+
+```
+ComfyUI-Manager not found. 'cm-cli' command is not available.
+```
+
+comfy-cli probes for the `cm_cli` **module** (it runs `python -c "import
+cm_cli"`), but current ComfyUI-Manager ships `cm-cli.py`, a hyphenated script,
+not an importable `cm_cli` package. Running that script directly instead needs
+ComfyUI-Manager's own requirements, which include `transformers` and
+`matrix-nio` — a large install for an image that otherwise needs neither.
+
+It is also not worth forcing. Node listing through a workspace reports the node
+classes in the **baked checkout**, not the ones your running ComfyUI actually
+has. Any custom node you installed in the `comfyui` container would be invisible
+to it, so a green `nodes` result would be quietly misleading.
+
+For the authoritative answer, ask the running server directly. This container
+publishes `/object_info`, which lists every node class the live ComfyUI can
+execute:
+
+```bash
+curl -s http://127.0.0.1:8188/object_info | jq 'keys | length'    # 963 here
+```
+
+If upstream fixes the `cm_cli` expectation, this becomes moot; the workspace
+already in the image means only that one probe needs to start passing.
 
 Two documented quirks worth knowing:
 

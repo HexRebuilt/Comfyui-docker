@@ -263,9 +263,11 @@ docker compose --profile mcp pull
 claude mcp add comfy-mcp -- docker compose --profile mcp run --rm -T comfy-mcp
 ```
 
-CI rebuilds that image every Monday, so `pull` keeps it current. It deliberately
-does not self-update at runtime the way ComfyUI does: it is spawned fresh per
-MCP session, and swapping code under a live session is the failure mode to avoid.
+It stays current two ways: the container checks PyPI at startup and upgrades
+only what is behind, and CI rebuilds the image every Monday so `pull` refreshes
+it too. The startup check runs *before* the MCP handshake, never during a
+session — this container is spawned fresh each time, so each session runs a
+current version without code being swapped underneath a live conversation.
 
 Verified end-to-end from the published image: handshake clean, `system_stats`
 reports ComfyUI 0.38.0, 484 templates listed. A handful of tools manage a

@@ -60,8 +60,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends shellcheck
 
-      - name: shellcheck entrypoint
-        run: shellcheck --severity=style docker-entrypoint.sh
+      - name: shellcheck entrypoints
+        run: shellcheck --severity=style docker-entrypoint.sh comfyui-update.sh mcp-entrypoint.sh
 
       - name: Validate compose file
         run: docker compose config --quiet
