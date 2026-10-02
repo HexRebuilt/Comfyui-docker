@@ -21,6 +21,10 @@ ARG COMFY_CLI_MIN=1.14.0
 # fresh pull is also a refresh.
 ARG COMFY_MCP_SPEC=comfy-mcp
 ARG COMFY_CLI_SPEC=comfy-cli>=${COMFY_CLI_MIN}
+# fastmcp is used only by the optional HTTP bridge. comfy-mcp is stdio-only, so
+# re-publishing it over the network needs an HTTP server; fastmcp is the
+# SDK-adjacent way to do that without hand-rolling protocol translation.
+ARG FASTMCP_SPEC=fastmcp>=4,<5
 # Shallow clones of the ComfyUI workspace. Only the git metadata and sources are
 # needed so comfy-cli can resolve a workspace path; no models, no pip install.
 # Measured at ~2 MB total, not the ~1 GB a full ComfyUI checkout would suggest.
@@ -43,7 +47,7 @@ RUN apt-get update \
 # The account and its config/cache dirs are created in the same layer because
 # comfy-cli writes $HOME/.config/comfy-cli on first use, and it must already be
 # owned by the runtime user.
-RUN pip install --no-cache-dir ${COMFY_CLI_SPEC} ${COMFY_MCP_SPEC} \
+RUN pip install --no-cache-dir ${COMFY_CLI_SPEC} ${COMFY_MCP_SPEC} ${FASTMCP_SPEC} \
     && useradd --create-home --uid 1000 --shell /bin/bash comfy \
     && mkdir -p /home/comfy/.config /home/comfy/.cache \
     && chown -R 1000:1000 /home/comfy
@@ -86,6 +90,7 @@ ENV HOME=/home/comfy \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 COPY --chmod=0755 mcp-entrypoint.sh /usr/local/bin/mcp-entrypoint.sh
+COPY --chmod=0755 mcp-http-bridge.py /usr/local/bin/mcp-http-bridge.py
 
 # The startup updater reinstalls comfy-mcp and comfy-cli, and pip replaces more
 # than the package: it also rewrites the console scripts in /usr/local/bin. Both

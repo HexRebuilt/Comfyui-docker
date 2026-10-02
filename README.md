@@ -244,9 +244,19 @@ The official [`Comfy-Org/comfy-mcp`](https://github.com/Comfy-Org/comfy-mcp) dri
 this container: 39 tools covering generation, job monitoring, and introspection of
 the nodes, models and templates your install actually has.
 
-It is **stdio**, so it runs on your host and needs no GPU of its own. Because
-port 8188 is published, the default `127.0.0.1:8188` already points at the
-container.
+It is **stdio**, so it normally runs on your host and needs no GPU of its own.
+Because port 8188 is published, the default `127.0.0.1:8188` already points at
+the container. To reach it from another machine there is an optional HTTP
+bridge (upstream comfy-mcp is stdio-only):
+
+```bash
+echo "MCP_AUTH_TOKEN=$(openssl rand -hex 24)" >> .env
+docker compose --profile mcp-http up -d comfy-mcp-http   # 127.0.0.1:8081
+```
+
+That port is **loopback-only by default and requires a token** — it is a
+authenticated remote shell for your GPU. See the security notes in
+[docs/MCP.md](docs/MCP.md) before binding it anywhere else.
 
 It ships as its own 216 MB image (no CUDA, no GPU), so it is not baked into the
 11 GB ComfyUI one:
@@ -288,6 +298,7 @@ host-install alternative, and setup details.
 | `scripts/dependency-check.sh` | The check itself; runnable locally |
 | `comfyui-update.sh` | The updater, also callable by hand |
 | `Dockerfile.mcp` | The MCP server image (separate, AGPL, no CUDA) |
+| `mcp-http-bridge.py` | Optional HTTP transport for the stdio MCP server |
 | `docs/MCP.md` | Driving the container from an AI agent |
 | `SBOM.md` | Verified component versions and known scan noise |
 

@@ -108,6 +108,72 @@ Run the command from the repository directory so compose finds the file, or pass
 `-f` with an absolute path as above. `-T` keeps stdin attached, which is the
 MCP stream; without it the server sees a closed pipe and exits immediately.
 
+## Option C: over the network
+
+`comfy-mcp` is **stdio-only** — upstream hardcodes `mcp.run(transport="stdio")`
+and there is no HTTP transport to switch on. To reach it from another machine,
+`mcp-http-bridge.py` launches it as a subprocess and re-publishes it as a
+Streamable HTTP MCP endpoint using `fastmcp`.
+
+Already wired into compose behind the `mcp-http` profile:
+
+```bash
+echo "MCP_AUTH_TOKEN=$(openssl rand -hex 24)" >> .env
+docker compose --profile mcp-http up -d comfy-mcp-http
+```
+
+That publishes `127.0.0.1:8081` — loopback only, so by default it is reachable
+from the host and nothing else. Point a client at it:
+
+```json
+{
+  "mcpServers": {
+    "comfy-mcp": {
+      "type": "http",
+      "url": "http://127.0.0.1:8081/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+Verified over the network through compose: 39 tools listed, `system_stats`
+reporting ComfyUI 0.38.0 / torch 2.11.0+cu130, 484 templates, and HTTP 401 for a
+missing or wrong token versus 200 for the correct one.
+
+### Reaching it from another machine
+
+Set `MCP_BIND_ADDR=0.0.0.0` in `.env` to publish on the LAN. Read this first.
+
+## Security: the network exposure
+
+**This endpoint is a remote shell for your GPU.** comfy-mcp has no
+authentication of its own, so the bridge adds it, and it is not optional:
+
+- `MCP_AUTH_TOKEN` is **required**. Without it the bridge refuses to start, and
+  it refuses specifically when the bind address is not loopback.
+- Tokens shorter than 16 characters are rejected.
+- Comparison is constant-time (`hmac.compare_digest`).
+
+What an authenticated caller can do: run GPU workloads, write files into the
+container, and call `partner_generate`, which **spends real credits** on hosted
+partner models. Treat the token like a password and an SSH key.
+
+Also true of the existing setup, and worth repeating here:
+
+- Port 8188 is an **unauthenticated ComfyUI UI**. This bridge gives network
+  clients programmatic access to the same machine, so it is not a smaller
+  exposure — it is a different shape of the same one.
+- Anyone who can reach this can drive the GPU at your expense and consume disk
+  with generated output.
+
+Prefer, in order: bind to `127.0.0.1` and reach it over SSH or a Tailscale/WireGuard
+tunnel; or keep it on the LAN behind a reverse proxy that terminates TLS and
+adds its own auth; and never expose it to the internet directly.
+
+If you bind beyond loopback, set `MCP_BIND_ADDR` explicitly — the default is
+deliberately the conservative one.
+
 ### Staying current
 
 Two independent mechanisms, so you get fresh code either way:

@@ -105,3 +105,43 @@ services:
     # this container as a uid that does not own its own site-packages, so the
     # startup auto-update would fail on permissions. The image's USER 1000:1000
     # already matches PUID's default.
+
+  # Optional: the same MCP server published over HTTP, so a client on another
+  # machine can reach it instead of spawning it over stdio.
+  #
+  # Behind the `mcp-http` profile and NOT published to the host by default --
+  # only `MCP_BIND_ADDR=127.0.0.1` below, so it is reachable from the host only
+  # until you deliberately change it.
+  #
+  # comfy-mcp itself has no authentication, so the bridge requires
+  # MCP_AUTH_TOKEN and refuses to start on a non-loopback bind without one.
+  # Generate one with: openssl rand -hex 24
+  comfy-mcp-http:
+    image: ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
+    profiles: ["mcp-http"]
+    entrypoint: ["/usr/local/bin/mcp-http-bridge.py"]
+    depends_on:
+      comfyui:
+        condition: service_healthy
+    ports:
+      # Loopback only by default. Change MCP_BIND_ADDR to 0.0.0.0 to expose it
+      # on the LAN -- and read the Security section of docs/MCP.md first.
+      - "${MCP_BIND_ADDR:-127.0.0.1}:${MCP_HTTP_PORT:-8081}:8081"
+    environment:
+      COMFYUI_URL: http://comfyui:8188
+      COMFY_LOCAL_URL: http://comfyui:8188
+      MCP_HTTP_HOST: 0.0.0.0        # inside the container; the host bind is MCP_BIND_ADDR
+      MCP_HTTP_PORT: "8081"
+      # Not enforced with ${VAR:?...} on purpose: compose interpolates every
+      # service regardless of profile, so requiring it here would break a plain
+      # `docker compose up` for anyone who never wants the HTTP bridge. The
+      # bridge refuses to start without it, which fails at the point of use.
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
+      AUTO_UPDATE: "${AUTO_UPDATE:-true}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # No `user:` override: this container owns its own site-packages so the
+    # startup auto-update can write. See the note on the comfy-mcp service.
+    restart: unless-stopped
