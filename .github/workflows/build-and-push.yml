@@ -124,11 +124,11 @@ jobs:
           vuln-type: os,library
           # These four are copies vendored inside pip and setuptools. Each
           # entry is justified in .trivyignore.
-          ignorefile: .trivyignore
+          trivyignores: .trivyignore
 
       - name: Upload SARIF to code scanning
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
