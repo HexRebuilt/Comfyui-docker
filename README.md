@@ -284,6 +284,8 @@ host-install alternative, and setup details.
 | `docker-compose.yml` | Runtime configuration |
 | `.github/workflows/security.yml` | Lint, secret scan, Trivy, Scorecard |
 | `.github/workflows/build-and-push.yml` | Build, publish to GHCR, scan, attest |
+| `.github/workflows/dependency-watch.yml` | Monthly upstream drift check |
+| `scripts/dependency-check.sh` | The check itself; runnable locally |
 | `comfyui-update.sh` | The updater, also callable by hand |
 | `Dockerfile.mcp` | The MCP server image (separate, AGPL, no CUDA) |
 | `docs/MCP.md` | Driving the container from an AI agent |
@@ -300,6 +302,41 @@ docker compose config --quiet
 
 `COMFYUI_REF` pins the ComfyUI branch or tag baked into the image. It defaults
 to `master`; set it to a release tag such as `v0.38.0` for a reproducible build.
+
+## Staying Current
+
+Most of what this project consumes updates itself, without you touching the repo:
+
+| Component | How it updates | Needs a rebuild? |
+|-----------|----------------|------------------|
+| ComfyUI | `AUTO_UPDATE=true` fast-forwards to upstream `master` at container start, then re-syncs dependencies | No |
+| `comfy-mcp`, `comfy-cli` | The MCP container checks PyPI at startup and upgrades what is behind; its image is also rebuilt weekly | No |
+| CUDA base image, torch | **Pinned.** Detected by the monthly scan and reported as an issue | Yes |
+
+That last row is deliberately not automated. A torch bump is exactly the change
+that can silently break a GPU architecture — the cu121 base in the original
+image could not target sm_120 at all — so it wants a rebuild and a check on real
+hardware rather than a bot doing it on a schedule.
+
+### The monthly scan
+
+On the 1st of each month, `dependency-watch.yml` compares the pinned versions
+against upstream and, **only if something is behind**, opens or updates a single
+tracking issue. It never commits and never modifies this repository. If you close
+the issue and nothing has drifted since, no new one is filed.
+
+Run it yourself any time:
+
+```bash
+./scripts/dependency-check.sh
+```
+
+It prints the same table and exits with a `drift=0` or `drift=1` line.
+
+Note the torch row: PyTorch ships far ahead of `torchaudio` on the cu130 index
+(torch 2.14.1 vs torchaudio 2.11.0), and taking the newer torch means dropping
+`torchaudio`. The scan reports torchaudio as the constraint, so it does not
+suggest a bump that would break the image.
 
 ## Vibecoding Methodology
 
