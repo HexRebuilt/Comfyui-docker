@@ -117,8 +117,35 @@ echo "Opened ${pr_url}"
 
 # Auto-merge is what makes this "automagically": it lands on its own once every
 # required check passes, and a red build simply stops here.
-if gh pr merge "${pr_url}" --squash --auto; then
-    echo "Auto-merge enabled; merges when checks pass."
+#
+# SAFETY: `gh pr merge --auto` is only safe when auto-merge is enabled on the
+# repo. When it is NOT enabled, gh silently performs an IMMEDIATE merge instead
+# of refusing - which was observed here, and merged a CUDA bump while its checks
+# were still pending. So the result is verified rather than trusted.
+#
+# Never fall back to a plain merge here. If auto-merge cannot be enabled, say so
+# and leave the PR for a human.
+pr_number="$(gh pr view "${pr_url}" --json number --jq .number)"
+auto_before="$(gh pr view "${pr_url}" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+
+if gh pr merge "${pr_url}" --squash --auto >/dev/null 2>&1; then
+    auto_after="$(gh pr view "${pr_url}" --json autoMergeRequest,state \
+        --jq 'if .autoMergeRequest != null then "armed" else .state end')"
+    if [ "${auto_after}" = "armed" ]; then
+        echo "Auto-merge armed on #${pr_number}; it merges only once checks pass."
+    elif [ "${auto_after}" = "MERGED" ] && [ "${auto_before}" = "true" ]; then
+        echo "PR #${pr_number} already merged with auto-merge set."
+    else
+        echo "::error::gh reported success but auto-merge is NOT armed on #${pr_number}." >&2
+        echo "::error::Refusing to leave an unarmed bump PR. Review it manually:" >&2
+        echo "::error::${pr_url}" >&2
+        exit 1
+    fi
 else
-    echo "::warning::Could not enable auto-merge. Merge manually: ${pr_url}"
+    echo "::warning::Auto-merge is not enabled for this repository, so gh would"
+    echo "::warning::merge ${pr_url} immediately rather than after checks."
+    echo "::warning::Leaving the PR open for a human instead."
+    echo "::warning::Enable it with:"
+    echo "::warning::  gh api --method PATCH repos/${GITHUB_REPOSITORY:-<owner/repo>} -F allow_auto_merge=true"
+    echo "::warning::or merge manually once checks are green: ${pr_url}"
 fi
