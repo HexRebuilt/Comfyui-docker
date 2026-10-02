@@ -124,6 +124,37 @@ as critical has been found in PyTorch 2.6.0", which is misleading. It is a
 torch.load, rated LOW here, and the title refers to the version the advisory was
 written against rather than this image.
 
+## MCP image
+
+`Dockerfile.mcp` builds a second, much smaller artifact:
+`ghcr.io/hexrebuilt/comfyui-docker-mcp`, ~216 MB on `python:3.12-slim` (Debian
+13). It carries `comfy-mcp` 0.10.0 and `comfy-cli` 1.22.0, needs no CUDA and no
+GPU, and is AGPL-3.0-or-later OR Commercial — which is why it is not part of the
+MIT-licensed ComfyUI image. It is rebuilt weekly by CI so it tracks upstream.
+
+### Open finding
+
+| Finding | Severity | Package | Installed | Fixed in |
+|---------|----------|---------|-----------|----------|
+| CVE-2026-103111 | HIGH | libpcre2-8-0 | 10.46-1~deb13u2 | 10.46-1~deb13u3 |
+
+An out-of-bounds write via a crafted regular expression, in the Debian base
+image. **Not suppressed**: `apt-cache policy` on the current Debian 13 archive
+still offers `deb13u2` as the candidate, so the fix is not published yet and the
+image cannot be remediated until it is. Re-check on the next weekly rebuild.
+
+Exposure is limited — the server parses regexes from workflow and template JSON
+rather than from untrusted network input — but it is reported rather than
+suppressed so it stays visible until upstream ships a fix.
+
+### Suppressed
+
+CVE-2026-22777 (CRLF injection) is suppressed for both images. The advisory is
+against `Comfy-Org/ComfyUI-Manager`, a ComfyUI custom-node extension, and
+scanners misattribute it to the `comfy-cli` wheel. It is absent from both images:
+no ComfyUI-Manager package is installed and it is not a comfy-cli dependency.
+Verified rather than assumed.
+
 ## Prior SBOM
 
 The previous version of this file described Ubuntu 22.04, Python 3.10+, and a

@@ -23,3 +23,17 @@ CVE-2026-97689
 # msgpack out-of-bounds read on Unpacker reuse (GHSA-6v7p-g79w-8964).
 # Vendored inside pip; not installed as a package.
 GHSA-6v7p-g79w-8964
+
+# CRLF injection in the ComfyUI-Manager config handler (CVE-2026-22777).
+#
+# Misattributed by the scanner to the comfy-cli wheel. The advisory is against
+# Comfy-Org/ComfyUI-Manager, a ComfyUI *custom node* extension. It is not present
+# in either image: no ComfyUI-Manager package is installed, and it is not among
+# comfy-cli's dependencies. Verified against the built MCP image.
+CVE-2026-22777
+
+# NOT ignored, deliberately:
+# CVE-2026-103111 (libpcre2-8-0, out-of-bounds write) is a real finding on the
+# MCP image's Debian base. The fixed package 10.46-1~deb13u3 is not in the
+# Debian 13 archive yet, so it cannot be remediated yet. Reported rather than
+# suppressed; see SBOM.md.
