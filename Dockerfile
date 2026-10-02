@@ -8,7 +8,7 @@
 #   - cu121 was capped at torch 2.5.1 (Oct 2024) and is no longer published.
 #   - ComfyUI's `comfy-kitchen` dependency requires cuBLASLt 13.x (CUDA 13+).
 # See README "GPU support matrix".
-FROM nvidia/cuda:13.0.3-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:13.0.0-cudnn-runtime-ubuntu24.04
 
 # Explicit because later steps pipe into tee/cut and rely on pipefail to catch
 # a failing left-hand command.
