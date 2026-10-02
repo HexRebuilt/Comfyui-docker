@@ -96,6 +96,34 @@ Four findings appear in every image scan and are suppressed in `.trivyignore`:
 Each was confirmed against the built image rather than assumed. Revisit when pip
 or setuptools ships a release carrying the fixes.
 
+## Lower-severity findings
+
+The image scan is configured for HIGH and CRITICAL, and reports none. For
+completeness, at LOW/MEDIUM the image has **fewer** findings than its own base
+image: 64 versus 94 for `nvidia/cuda:13.0.3-cudnn-runtime-ubuntu24.04`, because
+upgrading openssl and the Python packages resolves 34 that the base carries.
+
+Three findings are attributable to this project rather than the base image:
+
+| Finding | Severity | Package | Installed | Fixed in |
+|---------|----------|---------|-----------|----------|
+| CVE-2026-59890 | MEDIUM | setuptools | 81.0.0 | 83.0.0 |
+| CVE-2025-3000 | LOW | torch | 2.11.0+cu130 | 2.13.0 |
+| CVE-2026-97688 | MEDIUM | urllib3 | 2.7.0 (vendored) | 2.8.0 |
+
+None can be resolved as things stand:
+
+- setuptools and torch are capped by torch's own `setuptools<82` requirement.
+- torch 2.13.0 would clear CVE-2025-3000, but the cu130 torchaudio index stops
+  at 2.11.0, so upgrading torch means dropping torchaudio.
+- The urllib3 finding is the vendored copy described above.
+
+CVE-2025-3000 deserves a note: its Trivy title reads "A vulnerability classified
+as critical has been found in PyTorch 2.6.0", which is misleading. It is a
+`safety`-sourced advisory about an unsafe-weight-loading code-execution issue in
+torch.load, rated LOW here, and the title refers to the version the advisory was
+written against rather than this image.
+
 ## Prior SBOM
 
 The previous version of this file described Ubuntu 22.04, Python 3.10+, and a
