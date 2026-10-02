@@ -30,9 +30,11 @@ jobs:
         with:
           # DL3008: apt versions in Ubuntu-based images are not usefully
           #   pinnable; they are tied to the base image's apt snapshot.
-          # DL3013: `pip install --upgrade pip setuptools wheel` intentionally
-          #   floats, and torch is version-pinned explicitly on a later line.
-          ignore: DL3008,DL3013
+          # DL3013: the build pins torch/torchvision/torchaudio explicitly;
+          #   `wheel` is removed after use.
+          # DL3025: the HEALTHCHECK must use shell form because the probe
+          #   needs `|| exit 1`. JSON/exec form cannot express that.
+          ignore: DL3008,DL3013,DL3025
           dockerfile: Dockerfile
 
       - name: Install shellcheck
@@ -76,7 +78,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: fs
           scan-ref: .

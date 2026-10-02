@@ -148,8 +148,9 @@ WORKDIR ${COMFYUI_PATH}
 
 EXPOSE 8188
 
-# /system_stats is a cheap, side-effect-free readiness probe. Port is hardcoded
-# to match CMD, because ENV interpolation is not performed in exec-form HEALTHCHECK.
+# /system_stats is a cheap, side-effect-free readiness probe. Shell form is
+# required because the probe uses a redirect/`||`, and the port is hardcoded
+# rather than interpolated because ENV is not expanded inside HEALTHCHECK.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8188/system_stats || exit 1
 
