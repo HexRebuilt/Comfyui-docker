@@ -12,7 +12,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 permissions:
   contents: read
@@ -23,11 +22,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Compute the lowercased image name once and share it with both jobs, so the
+  # push and the scan cannot drift apart on repository-name casing.
+  image-name:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.lower.outputs.name }}
+    steps:
+      - id: lower
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
   # Build, and publish only from master or a tag. A PR build proves the image
   # still builds without granting it a registry path.
   build:
     name: Build and push
     runs-on: ubuntu-latest
+    needs: image-name
+    env:
+      # Lowercased: this repository is named "Comfyui-docker" and
+      # github.repository preserves the capital C, but OCI image references must
+      # be lowercase. buildx silently lowercases when pushing while trivy
+      # parses the ref strictly, so both must be built from the same name.
+      IMAGE_NAME: ${{ needs.image-name.outputs.name }}
     outputs:
       # Digest of the pushed manifest list, so the scan below is pinned even
       # if `latest` moves between the build and the scan.
@@ -96,7 +112,9 @@ jobs:
   # Scan what was actually published, not a locally rebuilt approximation.
   scan:
     name: Trivy (published image)
-    needs: build
+    needs: [image-name, build]
+    env:
+      IMAGE_NAME: ${{ needs.image-name.outputs.name }}
     # Nothing to scan on a PR: nothing was pushed.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
