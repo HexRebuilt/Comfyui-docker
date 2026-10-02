@@ -214,13 +214,22 @@ jobs:
         uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # latest=auto only sets `latest` on a semver tag push, and never on a
+          # branch or schedule run (procRefBranch returns latest=false). For the
+          # ComfyUI image that is what we want, because `latest` means "newest
+          # release". It is wrong here: this image is refreshed weekly by the
+          # schedule, so `latest` must follow the default branch or users would
+          # pull a permanently stale image after the first release.
           flavor: |
-            latest=auto
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern=v{{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
+            # Covers the weekly schedule too: a schedule run's ref is the
+            # default branch, so is_default_branch is true there.
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         id: build
