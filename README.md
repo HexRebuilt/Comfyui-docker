@@ -348,3 +348,4 @@ that.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+<!-- gate self-test -->
