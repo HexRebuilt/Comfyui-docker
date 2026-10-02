@@ -115,37 +115,25 @@ pr_url="$(gh pr create --base master --head "${branch}" \
 
 echo "Opened ${pr_url}"
 
-# Auto-merge is what makes this "automagically": it lands on its own once every
-# required check passes, and a red build simply stops here.
+# Merge only after every check is green.
 #
-# SAFETY: `gh pr merge --auto` is only safe when auto-merge is enabled on the
-# repo. When it is NOT enabled, gh silently performs an IMMEDIATE merge instead
-# of refusing - which was observed here, and merged a CUDA bump while its checks
-# were still pending. So the result is verified rather than trusted.
+# SAFETY, learned the hard way: `gh pr merge --auto` is NOT safe as the merge
+# mechanism here. On this repository it merged a CUDA bump IMMEDIATELY, with
+# checks still pending, even with allow_auto_merge=true set - it only falls back
+# to an immediate merge instead of refusing. So it is not used at all.
 #
-# Never fall back to a plain merge here. If auto-merge cannot be enabled, say so
-# and leave the PR for a human.
+# Instead this watches the checks in-process and merges only if every one
+# passed. `gh pr checks --watch` exits non-zero when any check fails, which is
+# the gate. A red build leaves the PR open, so a bad bump never lands.
 pr_number="$(gh pr view "${pr_url}" --json number --jq .number)"
-auto_before="$(gh pr view "${pr_url}" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+echo "Watching checks on #${pr_number} (timeout ${CHECK_TIMEOUT:-2700}s)..."
 
-if gh pr merge "${pr_url}" --squash --auto >/dev/null 2>&1; then
-    auto_after="$(gh pr view "${pr_url}" --json autoMergeRequest,state \
-        --jq 'if .autoMergeRequest != null then "armed" else .state end')"
-    if [ "${auto_after}" = "armed" ]; then
-        echo "Auto-merge armed on #${pr_number}; it merges only once checks pass."
-    elif [ "${auto_after}" = "MERGED" ] && [ "${auto_before}" = "true" ]; then
-        echo "PR #${pr_number} already merged with auto-merge set."
-    else
-        echo "::error::gh reported success but auto-merge is NOT armed on #${pr_number}." >&2
-        echo "::error::Refusing to leave an unarmed bump PR. Review it manually:" >&2
-        echo "::error::${pr_url}" >&2
-        exit 1
-    fi
+if gh pr checks "${pr_number}" --watch --interval 30; then
+    echo "All checks passed; merging."
+    gh pr merge "${pr_number}" --squash --delete-branch
+    echo "Merged #${pr_number}."
 else
-    echo "::warning::Auto-merge is not enabled for this repository, so gh would"
-    echo "::warning::merge ${pr_url} immediately rather than after checks."
-    echo "::warning::Leaving the PR open for a human instead."
-    echo "::warning::Enable it with:"
-    echo "::warning::  gh api --method PATCH repos/${GITHUB_REPOSITORY:-<owner/repo>} -F allow_auto_merge=true"
-    echo "::warning::or merge manually once checks are green: ${pr_url}"
+    echo "::error::Checks failed or timed out on #${pr_number}; leaving it open." >&2
+    echo "::error::The Dockerfile bump was NOT applied. ${pr_url}" >&2
+    exit 1
 fi
