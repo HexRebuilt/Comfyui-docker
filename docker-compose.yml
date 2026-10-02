@@ -64,3 +64,33 @@ services:
       timeout: 5s
       start_period: 90s
       retries: 3
+
+  # MCP server so an AI client can drive the ComfyUI service above.
+  #
+  # Under the `mcp` profile, so it never starts with a plain `docker compose up`.
+  # This server is stdio: your AI client spawns it per session and speaks MCP
+  # over stdin/stdout, so there is nothing to "keep running". See docs/MCP.md
+  # for the client snippets.
+  #
+  # Pull and keep current with:
+  #   docker compose --profile mcp pull comfy-mcp
+  # CI rebuilds this image on a schedule, so a pull is all that is needed.
+  comfy-mcp:
+    image: ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
+    profiles: ["mcp"]
+    # Keeps stdin open for the client's MCP stream.
+    stdin_open: true
+    depends_on:
+      comfyui:
+        condition: service_healthy
+    environment:
+      # Service-name addressing over the compose network; no host port needed.
+      COMFYUI_URL: http://comfyui:8188
+      COMFY_LOCAL_URL: http://comfyui:8188
+      # Uncomment to spend credits on hosted partner models. Off by default.
+      # COMFY_API_KEY: "${COMFY_API_KEY:-}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "${PUID:-1000}:${PGID:-1000}"

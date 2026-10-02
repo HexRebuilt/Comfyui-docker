@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [master]
   workflow_dispatch:
+  # Weekly, so the MCP image tracks comfy-mcp/comfy-cli upstream releases
+  # without anyone having to push a commit. The MCP image deliberately does not
+  # self-update at runtime (see Dockerfile.mcp): an image that changes under a
+  # live MCP session is exactly the failure mode the scheduled rebuild avoids.
+  schedule:
+    - cron: '17 5 * * 1'   # Mondays 05:17 UTC, deliberately off the :00 stampede
 
 env:
   REGISTRY: ghcr.io
@@ -45,6 +51,10 @@ jobs:
     name: Build and push
     runs-on: ubuntu-24.04
     needs: image-name
+    # The weekly schedule exists to refresh the MCP image, which is the only
+    # thing that tracks a floating upstream dependency. Rebuilding the 11 GB
+    # ComfyUI image weekly would burn runner minutes to produce identical layers.
+    if: github.event_name != 'schedule'
     env:
       # Lowercased: this repository is named "Comfyui-docker" and
       # github.repository preserves the capital C, but OCI image references must
@@ -130,12 +140,13 @@ jobs:
   # Scan what was actually published, not a locally rebuilt approximation.
   scan:
     name: Trivy (published image)
+    runs-on: ubuntu-24.04
     needs: [image-name, build]
+    # Nothing to scan on a PR (nothing was pushed), nor on the weekly schedule
+    # (the ComfyUI image is not rebuilt then).
+    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
     env:
       IMAGE_NAME: ${{ needs.image-name.outputs.name }}
-    # Nothing to scan on a PR: nothing was pushed.
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -171,3 +182,98 @@ jobs:
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
+
+  # The MCP server image. Small and GPU-free, so it builds in seconds and gets
+  # its own scan. Published to a separate repository name so it can be pulled
+  # and versioned independently of the ComfyUI image.
+  build-mcp:
+    name: Build and push (MCP)
+    runs-on: ubuntu-24.04
+    needs: image-name
+    env:
+      IMAGE_NAME: ${{ needs.image-name.outputs.name }}-mcp
+    # Push on master, tags, and the weekly schedule. Never on a PR.
+    if: github.event_name != 'pull_request'
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=auto
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile.mcp
+          # The MCP client runs this, and it runs on a host with a GPU; there is
+          # no useful arm64 target here either.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=mcp
+          cache-to: type=gha,mode=max,scope=mcp
+          sbom: true
+          provenance: mode=max
+
+  # Scan the published MCP image too. It has a different dependency set, so the
+  # ComfyUI image's scan says nothing about it.
+  scan-mcp:
+    name: Trivy (MCP image)
+    runs-on: ubuntu-24.04
+    needs: [image-name, build-mcp]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    env:
+      IMAGE_NAME: ${{ needs.image-name.outputs.name }}-mcp
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-mcp.outputs.image-digest }}
+          format: sarif
+          output: trivy-mcp.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-mcp.sarif
+          category: trivy-mcp

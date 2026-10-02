@@ -44,6 +44,17 @@ jobs:
           ignore: DL3008,DL3013,DL3025
           dockerfile: Dockerfile
 
+      # Same checks on the MCP image, which is a separate Dockerfile and would
+      # otherwise be the one file in the repo that CI never inspects.
+      - name: hadolint (MCP image)
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          # DL3008/DL3013: same rationale as above. The MCP image intentionally
+          #   floats comfy-mcp/comfy-cli so the scheduled rebuild can pick up
+          #   upstream releases; pinning them would defeat that.
+          ignore: DL3008,DL3013
+          dockerfile: Dockerfile.mcp
+
       - name: Install shellcheck
         run: |
           sudo apt-get update

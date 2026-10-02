@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1.7
+#
+# MCP server for ComfyUI, built so an AI client can drive the ComfyUI container.
+#
+# This is a SEPARATE image from the main ComfyUI one, on purpose:
+#   - the MCP server needs no GPU and no CUDA, so it stays ~150 MB instead of
+#     tens of gigabytes;
+#   - it ships a different licence (AGPL-3.0-or-later OR Commercial), so it must
+#     not be baked into the MIT-licensed ComfyUI image;
+#   - it is spawned per session by the MCP client, not run as a long-lived
+#     service.
+#
+# The server is stdio: your AI client runs it as a subprocess and speaks MCP over
+# stdin/stdout. `docker run -i` is the standard way to containerise that, and
+# docs/MCP.md has the client snippets.
+FROM python:3.12-slim
+
+ARG COMFY_CLI_MIN=1.14.0
+# Unpinned so the scheduled rebuild in CI picks up upstream releases. This image
+# is rebuilt on a schedule rather than self-updating at runtime, so an
+# untested version can never land in a running session.
+ARG COMFY_MCP_SPEC=comfy-mcp
+ARG COMFY_CLI_SPEC=comfy-cli>=${COMFY_CLI_MIN}
+
+# git is not optional: comfy-cli shells out to it, and its absence makes
+# workspace-backed tools crash rather than degrade.
+# ca-certificates is needed for HTTPS to PyPI and the HF/GitHub endpoints.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Two separate installs on purpose. comfy-mcp deliberately does not depend on
+# comfy-cli: it runs whichever `comfy` is on PATH and enforces the version floor
+# at runtime, so pinning a second copy here would be the wrong engine.
+#
+# The account and its config/cache dirs are created in the same layer because
+# comfy-cli writes $HOME/.config/comfy-cli on first use, and it must already be
+# owned by the runtime user.
+RUN pip install --no-cache-dir ${COMFY_CLI_SPEC} ${COMFY_MCP_SPEC} \
+    && useradd --create-home --uid 1000 --shell /bin/bash comfy \
+    && mkdir -p /home/comfy/.config /home/comfy/.cache \
+    && chown -R 1000:1000 /home/comfy
+
+ENV HOME=/home/comfy \
+    XDG_CONFIG_HOME=/home/comfy/.config \
+    XDG_CACHE_HOME=/home/comfy/.cache \
+    # Reaches the ComfyUI service by its compose service name over the shared
+    # docker network, so no host port mapping is required.
+    COMFYUI_URL=http://comfyui:8188 \
+    # Read by comfy-cli itself rather than by the MCP server. Setting it keeps
+    # system_stats/free_memory pointed at the same ComfyUI the run tools submit
+    # to, which upstream documents as NOT following COMFYUI_URL on its own.
+    COMFY_LOCAL_URL=http://comfyui:8188 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+USER 1000:1000
+WORKDIR /home/comfy
+
+# The server itself. Override with `docker run <image> --version` to see what
+# is installed, or `comfy --version` via `run --entrypoint comfy`.
+ENTRYPOINT ["comfy-mcp"]
