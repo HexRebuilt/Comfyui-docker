@@ -78,13 +78,14 @@ jobs:
         uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Suppress metadata-action's automatic `latest`. With the default
-          # latest=auto it adds `latest` to a tag push unconditionally
-          # (procRefTag in src/meta.ts), which would repoint the mutable tag
-          # away from master on every release. The explicit raw entry below is
-          # the only thing that should ever set it.
-          flavor: |
-            latest=false
+          # `latest` is left at metadata-action's default latest=auto, which is
+          # what we want here:
+          #   - a semver tag push sets it (procSemver sets latest=true for any
+          #     non-prerelease semver tag), so `latest` tracks the newest
+          #     release;
+          #   - a branch push does not (procRefBranch returns latest=false), so
+          #     `latest` never carries unreleased master work.
+          # Prereleases such as v1.1.0-rc1 also stay off `latest`.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -95,9 +96,6 @@ jobs:
             # Minor-tracking float: v1.0.1 also moves 1.0.
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
-            # `latest` tracks the default branch and nothing else, so a release
-            # build cannot move it.
-            type=raw,value=latest,enable={{is_default_branch}}
 
       # amd64 only, deliberately.
       #

@@ -44,7 +44,12 @@ no useful arm64 target for that: aarch64 Jetson needs a different base image
 (`nvcr.io/nvidia/l4t`) and Apple Silicon cannot run CUDA at all.
 
 Tags follow the metadata-action convention: branch names, `vX.Y.Z` semver tags,
-`sha-abcdef1` for a specific commit, and `latest` for the default branch.
+`sha-abcdef1` for a specific commit, and `latest` for the newest **release**.
+
+`latest` moves only when you push a semver tag, never on a merge to `master`, so
+a plain `docker compose pull` gets you a tagged release rather than untested
+work off the default branch. Prereleases (`v1.1.0-rc1`) deliberately do not move
+it.
 
 Each published image carries an SBOM and a build provenance attestation. To
 verify provenance:
