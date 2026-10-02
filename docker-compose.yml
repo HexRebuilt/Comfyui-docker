@@ -74,7 +74,7 @@ services:
   #
   # Pull and keep current with:
   #   docker compose --profile mcp pull comfy-mcp
-  # CI rebuilds this image on a schedule, so a pull is all that is needed.
+  # The image also self-updates at startup, so a run is current either way.
   comfy-mcp:
     image: ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
     profiles: ["mcp"]
@@ -87,10 +87,19 @@ services:
       # Service-name addressing over the compose network; no host port needed.
       COMFYUI_URL: http://comfyui:8188
       COMFY_LOCAL_URL: http://comfyui:8188
+      # Upgrade comfy-mcp / comfy-cli to the latest PyPI release at startup.
+      # On by default. Set false in .env to pin to whatever the image ships.
+      AUTO_UPDATE: "${AUTO_UPDATE:-true}"
       # Uncomment to spend credits on hosted partner models. Off by default.
       # COMFY_API_KEY: "${COMFY_API_KEY:-}"
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    user: "${PUID:-1000}:${PGID:-1000}"
+    # Deliberately NO `user:` override here, unlike the comfyui service.
+    # This service mounts nothing, so there is no host-uid ownership problem to
+    # solve -- and overriding it would be actively harmful: PUID is meant to be
+    # set to your host uid for the bind mounts, and reusing it here would run
+    # this container as a uid that does not own its own site-packages, so the
+    # startup auto-update would fail on permissions. The image's USER 1000:1000
+    # already matches PUID's default.

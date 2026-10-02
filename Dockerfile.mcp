@@ -87,12 +87,14 @@ ENV HOME=/home/comfy \
 
 COPY --chmod=0755 mcp-entrypoint.sh /usr/local/bin/mcp-entrypoint.sh
 
-# The updater may reinstall packages into /usr/local at startup, so
-# site-packages must be writable by the runtime user, and the update log must
-# already exist and be owned by it.
+# The startup updater reinstalls comfy-mcp and comfy-cli, and pip replaces more
+# than the package: it also rewrites the console scripts in /usr/local/bin. Both
+# that directory and site-packages must belong to the runtime user, or every
+# real upgrade dies with PermissionError on /usr/local/bin/comfy while the
+# container still starts and looks healthy.
 RUN touch /var/log/mcp-update.log \
-    && chown 1000:1000 /var/log/mcp-update.log \
-    && chown -R 1000:1000 /usr/local/lib/python3.12/site-packages
+    && chown -R 1000:1000 /usr/local/lib/python3.12/site-packages /usr/local/bin \
+    && chown 1000:1000 /var/log/mcp-update.log
 
 USER 1000:1000
 WORKDIR /home/comfy
