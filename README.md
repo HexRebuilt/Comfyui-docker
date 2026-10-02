@@ -328,6 +328,15 @@ On the 1st of each month, `dependency-watch.yml` runs two jobs:
 2. **Align.** Opens a PR bumping the pins, then waits for CI and merges it
    **only if every check passed**. A red or still-running build leaves the PR
    open, so a bad bump cannot land.
+3. **Release.** After the merge it cuts the next patch tag (`v1.0.1`, `v1.0.2`,
+   …) on the merged commit, which is what makes `latest` advance. Without this
+   the alignment would never reach anyone pulling `:latest`, because that image
+   only takes `latest` from a release tag while the bump merges to `master`.
+
+The tag points at the **merged** master commit, not the branch head — the PR is
+squash-merged, so master gets a commit that did not exist when the branch was
+pushed. Release tags are immutable: a ruleset blocks updating or deleting any
+`v*` tag, so a published release can never be rewritten.
 
 The bump respects real constraints. `torchaudio` is the ceiling on torch — on the
 cu130 index torch is at 2.14.1 while torchaudio stops at 2.11.0, so taking the
