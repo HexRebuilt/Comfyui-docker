@@ -13,6 +13,13 @@ permissions:
   contents: read
 
 # A newer push to the same ref cancels the in-flight run.
+# Runner label is pinned, not `ubuntu-latest`.
+# GitHub migrates `ubuntu-latest` to Ubuntu 26.04 between 2026-10-19 and
+# 2026-11-19 (actions/runner-images#14748); their documented mitigation is to
+# name `ubuntu-24.04`. Only the lint job installs a runner package
+# (shellcheck), and the published image is unaffected either way because the
+# Dockerfile pins its own userland via FROM nvidia/cuda:...-ubuntu24.04.
+
 concurrency:
   group: security-${{ github.ref }}
   cancel-in-progress: true
@@ -21,7 +28,7 @@ jobs:
   # Static analysis of the two files we author: Dockerfile and entrypoint.
   lint:
     name: Lint (hadolint + shellcheck)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -52,7 +59,7 @@ jobs:
   # .env or token before it reached the registry.
   secrets:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -70,7 +77,7 @@ jobs:
   # Needs `write` only to upload the SARIF report to code scanning.
   trivy-fs:
     name: Trivy (filesystem)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
@@ -99,7 +106,7 @@ jobs:
   # Supply-chain posture of the repo and workflows.
   scorecard:
     name: OpenSSF Scorecard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write

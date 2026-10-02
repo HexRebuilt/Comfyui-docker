@@ -17,6 +17,13 @@ permissions:
   contents: read
   packages: write
 
+# Runner label is pinned, not `ubuntu-latest`.
+# GitHub migrates `ubuntu-latest` to Ubuntu 26.04 between 2026-10-19 and
+# 2026-11-19 (actions/runner-images#14748); their documented mitigation is to
+# name `ubuntu-24.04`. Only the lint job installs a runner package
+# (shellcheck), and the published image is unaffected either way because the
+# Dockerfile pins its own userland via FROM nvidia/cuda:...-ubuntu24.04.
+
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -25,7 +32,7 @@ jobs:
   # Compute the lowercased image name once and share it with both jobs, so the
   # push and the scan cannot drift apart on repository-name casing.
   image-name:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       name: ${{ steps.lower.outputs.name }}
     steps:
@@ -36,7 +43,7 @@ jobs:
   # still builds without granting it a registry path.
   build:
     name: Build and push
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: image-name
     env:
       # Lowercased: this repository is named "Comfyui-docker" and
@@ -117,7 +124,7 @@ jobs:
       IMAGE_NAME: ${{ needs.image-name.outputs.name }}
     # Nothing to scan on a PR: nothing was pushed.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
