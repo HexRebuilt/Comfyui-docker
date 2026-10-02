@@ -126,9 +126,25 @@ echo "Opened ${pr_url}"
 # passed. `gh pr checks --watch` exits non-zero when any check fails, which is
 # the gate. A red build leaves the PR open, so a bad bump never lands.
 pr_number="$(gh pr view "${pr_url}" --json number --jq .number)"
-echo "Watching checks on #${pr_number} (timeout ${CHECK_TIMEOUT:-2700}s)..."
 
-if gh pr checks "${pr_number}" --watch --interval 30; then
+# Wait for the checks to register before watching them. A PR created moments ago
+# can report ZERO checks, and `gh pr checks` exits non-zero for that, which
+# looked exactly like a failing build. Verified: it fired here within seconds of
+# opening the PR.
+echo "Waiting for checks to register on #${pr_number}..."
+checks=0
+for _ in $(seq 1 40); do          # up to ~10 minutes
+    checks="$(gh pr checks "${pr_number}" 2>/dev/null | wc -l || true)"
+    [ "${checks}" -gt 0 ] && break
+    sleep 15
+done
+if [ "${checks}" -eq 0 ]; then
+    echo "::error::No checks ever appeared on #${pr_number}; leaving it open." >&2
+    exit 1
+fi
+echo "${checks} checks reported; watching them."
+
+if gh pr checks "${pr_number}" --watch --interval 30 --fail-fast; then
     echo "All checks passed; merging."
     gh pr merge "${pr_number}" --squash --delete-branch
     echo "Merged #${pr_number}."
