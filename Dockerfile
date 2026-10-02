@@ -75,13 +75,15 @@ ENV PATH="/opt/venv/bin:${PATH}"
 ENV VIRTUAL_ENV=/opt/venv
 
 # Torch first, from the CUDA 13 index, so the matching cu130 wheels are
-# selected. torch/torchvision/torchaudio are pinned to one mutually
-# consistent release (torchvision 0.26.0 declares `torch==2.11.0`); the
+# selected. torch/torchvision/torchaudio are pinned to one mutually consistent
+# release, resolved rather than guessed: the monthly bump job pins torch and
+# torchaudio and asks the resolver for the torchvision that matches. The
 # unversioned `torch` in ComfyUI's requirements.txt then resolves to the
 # already-installed build instead of pulling a CPU or cu126 wheel.
 #
-# 2.11.0 is the newest torch on cu130 for which a matching torchaudio
-# exists (the cu130 torchaudio index stops at 2.11.0).
+# torchaudio, not torch, is the ceiling here. On the cu130 index torch runs
+# ahead of torchaudio, so taking the newest torch would mean dropping
+# torchaudio entirely. See scripts/dependency-targets.sh.
 RUN pip install --upgrade pip \
     && pip install wheel \
     && pip install --index-url "${TORCH_INDEX_URL}" \
