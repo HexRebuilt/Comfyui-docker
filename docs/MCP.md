@@ -115,27 +115,57 @@ and there is no HTTP transport to switch on. To reach it from another machine,
 `mcp-http-bridge.py` launches it as a subprocess and re-publishes it as a
 Streamable HTTP MCP endpoint using `fastmcp`.
 
-Already wired into compose behind the `mcp-http` profile:
+Already wired into compose behind the `mcp-http` profile. **No token needed for
+the default setup:**
 
 ```bash
-echo "MCP_AUTH_TOKEN=$(openssl rand -hex 24)" >> .env
 docker compose --profile mcp-http up -d comfy-mcp-http
 ```
 
-That publishes `127.0.0.1:8081` — loopback only, so by default it is reachable
-from the host and nothing else. Point a client at it:
+It publishes `127.0.0.1:8081` — reachable from this machine and nothing else —
+and starts unauthenticated because there is nothing to protect. Point a client
+at it:
 
 ```json
 {
   "mcpServers": {
     "comfy-mcp": {
       "type": "http",
-      "url": "http://127.0.0.1:8081/mcp",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+      "url": "http://127.0.0.1:8081/mcp"
     }
   }
 }
 ```
+
+To publish it beyond this machine, set a token **and** the bind address:
+
+```bash
+echo "MCP_AUTH_TOKEN=$(openssl rand -hex 24)" >> .env
+echo "MCP_BIND_ADDR=0.0.0.0"                    >> .env
+docker compose --profile mcp-http up -d comfy-mcp-http
+```
+
+which adds the header to the client config:
+
+```json
+{ "type": "http", "url": "http://HOST:8081/mcp",
+  "headers": { "Authorization": "Bearer YOUR_TOKEN" } }
+```
+
+### How the bridge decides whether a token is required
+
+Exposure is decided by **where the port is published from the host**, not by
+what the process binds. Inside a container the bridge must bind `0.0.0.0` for
+the published port to reach it at all, so compose passes the host-side bind
+separately as `MCP_PUBLIC_BIND`. Standalone runs fall back to `MCP_HTTP_HOST`.
+
+| `MCP_PUBLIC_BIND` | No token | With token |
+|---|---|---|
+| `127.0.0.1` | starts, no auth | starts, auth |
+| `0.0.0.0` or a LAN IP | **refuses to start** | starts, auth |
+
+So the loopback-only guarantee is unchanged: publishing beyond this machine
+without a token fails loudly instead of quietly exposing the GPU.
 
 Verified over the network through compose: 39 tools listed, `system_stats`
 reporting ComfyUI 0.38.0 / torch 2.11.0+cu130, 484 templates, and HTTP 401 for a
@@ -148,12 +178,15 @@ Set `MCP_BIND_ADDR=0.0.0.0` in `.env` to publish on the LAN. Read this first.
 ## Security: the network exposure
 
 **This endpoint is a remote shell for your GPU.** comfy-mcp has no
-authentication of its own, so the bridge adds it, and it is not optional:
+authentication of its own, so the bridge adds it. A token is optional exactly
+when the endpoint is reachable only from this machine, and mandatory otherwise:
 
-- `MCP_AUTH_TOKEN` is **required**. Without it the bridge refuses to start, and
-  it refuses specifically when the bind address is not loopback.
+- **`MCP_PUBLIC_BIND` is not loopback → a token is required.** The bridge
+  refuses to start without one, so a typo cannot expose the GPU to the LAN.
 - Tokens shorter than 16 characters are rejected.
 - Comparison is constant-time (`hmac.compare_digest`).
+- `MCP_ALLOW_ANONYMOUS` is accepted but no longer needed; a loopback bind
+  permits anonymous access on its own.
 
 What an authenticated caller can do: run GPU workloads, write files into the
 container, and call `partner_generate`, which **spends real credits** on hosted
@@ -167,12 +200,9 @@ Also true of the existing setup, and worth repeating here:
 - Anyone who can reach this can drive the GPU at your expense and consume disk
   with generated output.
 
-Prefer, in order: bind to `127.0.0.1` and reach it over SSH or a Tailscale/WireGuard
-tunnel; or keep it on the LAN behind a reverse proxy that terminates TLS and
-adds its own auth; and never expose it to the internet directly.
-
-If you bind beyond loopback, set `MCP_BIND_ADDR` explicitly — the default is
-deliberately the conservative one.
+Prefer, in order: leave it on `127.0.0.1` (the default) and reach it over SSH
+or a Tailscale/WireGuard tunnel; or set a token and keep it on the LAN behind a
+reverse proxy that terminates TLS; and never expose it to the internet directly.
 
 ### Staying current
 
