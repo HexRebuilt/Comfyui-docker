@@ -66,8 +66,15 @@ RUN if getent group "${COMFYUI_GID}" >/dev/null; then \
     # Fail loudly rather than silently running as the wrong uid.
     [ "$(id -u comfy)" = "${COMFYUI_UID}" ]
 
-# Python environment in a venv owned by the runtime user, so the entrypoint's
+# Python environment in a venv the runtime user will own, so the entrypoint's
 # `pip install` during an auto-update does not need root.
+#
+# This chown only covers what the venv ships with. Every later `pip install` in
+# this file runs as root and writes root-owned files back into it, so the venv is
+# chowned AGAIN below, after the last install. Doing it only here leaves the
+# installed packages root-owned: pip can then create new directories but fails to
+# upgrade an existing one with "Permission denied: 'METADATA'", which silently
+# breaks the auto-update dependency sync.
 RUN python3 -m venv "${VENV_PATH}" \
     && chown -R "${COMFYUI_UID}:${COMFYUI_GID}" "${VENV_PATH}"
 
@@ -131,7 +138,12 @@ RUN mkdir -p \
         "${COMFYUI_PATH}/input" \
         "${COMFYUI_PATH}/output" \
         "${COMFYUI_PATH}/custom_nodes" \
-    && chown -R "${COMFYUI_UID}:${COMFYUI_GID}" "${COMFYUI_PATH}" /home/comfy
+    && chown -R "${COMFYUI_UID}:${COMFYUI_GID}" "${COMFYUI_PATH}" /home/comfy "${VENV_PATH}"
+# The venv is chowned here as well as above, and deliberately last: the pip
+# installs above ran as root, so without this the runtime user cannot upgrade any
+# installed package. Symptom when it is missed: ComfyUI logs "Installed
+# comfyui-workflow-templates version X is lower than the recommended version Y"
+# forever, because requirements.txt advances but pip refuses to apply it.
 
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chmod=0755 comfyui-update.sh /usr/local/bin/comfyui-update
