@@ -83,8 +83,15 @@ services:
     depends_on:
       comfyui:
         condition: service_healthy
-    ports:
-      - 8188:8188
+    # Deliberately NO `ports:` here. This service speaks MCP over stdin/stdout
+    # and opens no listening socket at all, so publishing a port does nothing --
+    # and publishing 8188 collides with the comfyui service above, which fails
+    # the whole stack with "Bind for 0.0.0.0:8188 failed: port is already
+    # allocated".
+    #
+    # Use it as:  docker compose --profile mcp run --rm comfy-mcp
+    # which attaches stdin, which is how an MCP client talks to it.
+    # For network access use the comfy-mcp-http service further below.
     environment:
       # Service-name addressing over the compose network; no host port needed.
       COMFYUI_URL: http://comfyui:8188

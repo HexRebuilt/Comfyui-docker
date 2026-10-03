@@ -403,6 +403,9 @@ Two things to weigh, both real:
 
 | Symptom | Cause |
 |---------|-------|
+| `Bind for 0.0.0.0:8188 failed: port is already allocated` | A `ports:` entry was added to the stdio `comfy-mcp` service. It has no listening socket to publish, and 8188 is already taken by `comfyui`. Remove the `ports:` block from that service. |
+| `comfy-mcp` container is "Up" but nothing responds | It was started with `up -d`, which leaves it blocked reading stdin. Use `docker compose --profile mcp run --rm comfy-mcp`, which attaches stdin. |
+| Nothing appears after `docker compose up -d` | Expected: the MCP services are behind the `mcp` / `mcp-http` profiles and never start by default. |
 | `"comfy" not found on PATH` | `COMFY_BIN` unset or wrong. Set it to an absolute path. |
 | Server starts, every tool fails | Same as above — the handshake still succeeds. |
 | `"Error executing tool <name>"` with no detail | An argument the tool does not accept. The generic message hides it; re-run the underlying `comfy <subcommand> --help` to see the real schema. `nodes` takes `action`/`query`, not `limit`. |
