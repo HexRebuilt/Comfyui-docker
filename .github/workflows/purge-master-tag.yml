@@ -40,6 +40,10 @@ jobs:
 
               let deleted = 0;
               for (const v of versions) {
+                const t = v.metadata?.container?.tags ?? [];
+                if (t.includes('master')) core.info(`HAS-MASTER ${name} id=${v.id} tags=${JSON.stringify(t)}`);
+              }
+              for (const v of versions) {
                 const tags = v.metadata?.container?.tags ?? [];
                 if (tags.length === 1 && tags[0] === 'master') {
                   try {
