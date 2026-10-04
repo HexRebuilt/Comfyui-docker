@@ -88,14 +88,22 @@ jobs:
         uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # `latest` is left at metadata-action's default latest=auto, which is
-          # what we want here:
-          #   - a semver tag push sets it (procSemver sets latest=true for any
-          #     non-prerelease semver tag), so `latest` tracks the newest
-          #     release;
-          #   - a branch push does not (procRefBranch returns latest=false), so
-          #     `latest` never carries unreleased master work.
-          # Prereleases such as v1.1.0-rc1 also stay off `latest`.
+          # `latest` tracks the default branch, matching the MCP image below.
+          #
+          # It used to mean "newest release": latest=auto's default, where a
+          # semver tag sets it but a branch push does not. That was wrong here.
+          # This deployment pins `latest` in docker-compose.yml and watches that
+          # same tag with watchtower, so the tag that must always move is
+          # `latest`. Gating it on a release left the stack on a stale image in
+          # between: v1.0.1 still carried comfy-kitchen 0.2.36 while upstream
+          # wanted 0.2.37, and ComfyUI logged "lower than the recommended
+          # version" on every boot with no way to get the fix without cutting a
+          # release.
+          #
+          # A branch push to the default branch therefore also sets `latest`, and
+          # a semver tag still moves it alongside its own pinned tag. Prereleases
+          # (v1.1.0-rc1) stay off `latest` -- latest=auto keeps that. Use the
+          # sha- and semver-pinned tags when you need a reproducible image.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -106,6 +114,8 @@ jobs:
             # Minor-tracking float: v1.0.1 also moves 1.0.
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
+            # What actually moves `latest` on every default-branch push.
+            type=raw,value=latest,enable={{is_default_branch}}
 
       # amd64 only, deliberately.
       #
@@ -214,12 +224,24 @@ jobs:
         uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # latest=auto only sets `latest` on a semver tag push, and never on a
-          # branch or schedule run (procRefBranch returns latest=false). For the
-          # ComfyUI image that is what we want, because `latest` means "newest
-          # release". It is wrong here: this image is refreshed weekly by the
-          # schedule, so `latest` must follow the default branch or users would
-          # pull a permanently stale image after the first release.
+          # `latest` tracks the default branch, deliberately.
+          #
+          # It used to mean "newest release" instead, which turned out to be the
+          # wrong default for this deployment:
+          #
+          #   - `latest` is what docker-compose.yml pins and what watchtower
+          #     watches, so it has to be the tag that always moves. Gating it on a
+          #     release left the stack pinned to a stale image between releases --
+          #     the v1.0.1 image still carried comfy-kitchen 0.2.36 while upstream
+          #     required 0.2.37, and ComfyUI logged a version warning on every
+          #     boot with no way to pick up the fix without a release.
+          #   - mixed tagging was confusing: the ComfyUI image moved `latest` only
+          #     on tags while the MCP image moved it on every default-branch push,
+          #     so the two services in one stack could sit on different policies.
+          #
+          # So both images now behave identically: `latest` = newest default
+          # branch, and semver tags additionally publish their own pinned tags.
+          # Reproducible builds are served by the sha- and semver-pinned tags.
           flavor: |
             latest=false
           tags: |

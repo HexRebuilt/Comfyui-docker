@@ -47,12 +47,17 @@ no useful arm64 target for that: aarch64 Jetson needs a different base image
 (`nvcr.io/nvidia/l4t`) and Apple Silicon cannot run CUDA at all.
 
 Tags follow the metadata-action convention: branch names, `vX.Y.Z` semver tags,
-`sha-abcdef1` for a specific commit, and `latest` for the newest **release**.
+`sha-abcdef1` for a specific commit, and `latest` for the newest build of the
+default branch.
 
-`latest` moves only when you push a semver tag, never on a merge to `master`, so
-a plain `docker compose pull` gets you a tagged release rather than untested
-work off the default branch. Prereleases (`v1.1.0-rc1`) deliberately do not move
-it.
+**`latest` is the tag to run.** It moves on every merge to `master`, which is
+what makes `docker compose pull` and watchtower actually pick up new work. It
+used to mean "newest release" and only moved on a semver tag; that left the
+stack on a stale image in between — the `v1.0.1` image still carried
+`comfy-kitchen 0.2.36` while upstream required `0.2.37`, and ComfyUI logged a
+version warning on every boot. Use `sha-abcdef1` or a `vX.Y.Z` tag when you need
+a reproducible image instead. Prereleases (`v1.1.0-rc1`) deliberately do not
+move `latest`.
 
 Each published image carries an SBOM and a build provenance attestation. To
 verify provenance:
@@ -340,9 +345,9 @@ On the 1st of each month, `dependency-watch.yml` runs two jobs:
    **only if every check passed**. A red or still-running build leaves the PR
    open, so a bad bump cannot land.
 3. **Release.** After the merge it cuts the next patch tag (`v1.0.1`, `v1.0.2`,
-   …) on the merged commit, which is what makes `latest` advance. Without this
-   the alignment would never reach anyone pulling `:latest`, because that image
-   only takes `latest` from a release tag while the bump merges to `master`.
+   …) on the merged commit. The merge to `master` is already enough to advance
+   `latest`, so this step exists to publish an immutable, citable version rather
+   than to make the fix reach `:latest` users.
 
 The tag points at the **merged** master commit, not the branch head — the PR is
 squash-merged, so master gets a commit that did not exist when the branch was

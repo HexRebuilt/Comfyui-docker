@@ -220,15 +220,21 @@ known-current version without any risk of swapping code underneath a live
 conversation. That is the meaningful difference from the ComfyUI image, which is
 a single long-running process and updates in place.
 
-Note the two images tag `latest` differently, on purpose:
+Both images tag `latest` the same way:
 
 | Image | `latest` means |
 |-------|----------------|
-| `comfyui-docker` | newest **release** (moved by pushing a `v*` tag) |
-| `comfyui-docker-mcp` | newest **build** of the default branch, including the weekly refresh |
+| `comfyui-docker` | newest build of `master` (moved by every merge) |
+| `comfyui-docker-mcp` | newest build of `master`, including the weekly refresh |
 
-A release should never silently swap the code an agent is driving mid-session,
-whereas the MCP server is disposable and is expected to be current.
+This was not always so. `comfyui-docker` used to publish `latest` only when a
+`v*` release tag was pushed, on the reasoning that a release should never
+silently swap the code an agent drives mid-session. In practice it just left the
+stack behind: between releases, `docker compose pull` and watchtower fetched
+nothing new, and `latest` still shipped `comfy-kitchen 0.2.36` against an
+upstream requirement of `0.2.37`. Both images now move `latest` on every
+default-branch push, and both additionally publish immutable `vX.Y.Z` and
+`sha-abcdef1` tags for anyone who needs a pinned, reproducible image.
 
 ## Option B: on the host
 
