@@ -48,20 +48,53 @@ jobs:
               const keepId = latestVersions[0].id;
               core.info(`${name}: keeping version ${keepId} (holds latest)`);
 
+              // Delete ONE version at a time and re-check after each.
+              //
+              // A previous bulk delete of 99+82 versions took `latest` down with
+              // it: the pull then failed with the index's child manifest reported
+              // as not found. GHCR registers some child/attestation manifests as
+              // versions in their own right, so deleting "everything that is not
+              // latest" is not a safe set operation. Verifying between deletes
+              // makes the workflow stop on the first bad delete instead of
+              // removing every remaining version.
               let deleted = 0;
-              for (const v of versions) {
-                if (v.id === keepId) continue;
+              let stillThere = versions.filter((v) => v.id !== keepId);
+              while (stillThere.length > 0) {
+                const v = stillThere[0];
                 const tags = v.metadata?.container?.tags ?? [];
                 try {
                   await github.request(
                     'DELETE /user/packages/container/{package_name}/versions/{package_version_id}',
                     { package_name: name, package_version_id: v.id }
                   );
-                  core.info(`DELETED ${name} ${v.id} tags=${JSON.stringify(tags)}`);
-                  deleted++;
                 } catch (err) {
                   core.setFailed(`${name}: cannot delete ${v.id}: ${err.message}`);
+                  break;
                 }
+                deleted++;
+
+                const after = await github.request(
+                  'GET /user/packages/container/{package_name}/versions',
+                  { package_name: name, per_page: 100 }
+                );
+                const latestNow = after.data.filter((x) =>
+                  (x.metadata?.container?.tags ?? []).includes('latest')
+                );
+                if (latestNow.length !== 1) {
+                  core.setFailed(
+                    `${name}: deleting ${v.id} (${JSON.stringify(tags)}) removed ` +
+                      `the version holding latest. latestNow=${latestNow.length}. ` +
+                      `STOPPING. Re-run build-and-push to re-push latest.`
+                  );
+                  break;
+                }
+                core.info(
+                  `DELETED ${name} ${v.id} tags=${JSON.stringify(tags)} ` +
+                    `(latest intact after delete #${deleted})`
+                );
+                stillThere = after.data.filter((x) =>
+                  (x.metadata?.container?.tags ?? []).includes('latest') ? false : true
+                );
               }
-              core.info(`${name}: deleted ${deleted}, kept 1 (latest)`);
+              core.info(`${name}: deleted ${deleted}, kept the version holding latest`);
             }
