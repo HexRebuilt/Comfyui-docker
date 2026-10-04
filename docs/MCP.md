@@ -122,6 +122,20 @@ the default setup:**
 docker compose --profile mcp-http up -d comfy-mcp-http
 ```
 
+To avoid passing the flag every time, set the profile in `.env`:
+
+```bash
+COMPOSE_PROFILES=mcp-http
+```
+
+`.env` is gitignored, so that is per-deployment: a fresh clone starts ComfyUI
+only, and your instance starts the bridge too. `COMPOSE_PROFILES` cannot be
+replaced with a boolean such as `MCP_ENABLED=true` — a profile is a *name* that
+something must activate, so putting `true` in the profile list leaves the
+service off just as surely as `false`. Do not add the `mcp` profile here; that
+one is the stdio server, which must be spawned by an MCP client rather than run
+as a service.
+
 It publishes `127.0.0.1:8081` — reachable from this machine and nothing else —
 and starts unauthenticated because there is nothing to protect. Point a client
 at it:
