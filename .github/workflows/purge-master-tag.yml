@@ -1,0 +1,65 @@
+name: Purge legacy master tag
+
+# One-off cleanup. The workflow stopped publishing a branch-named `master` image
+# tag in e0bd794 (type=ref,event=branch was removed from both image jobs), but
+# removing the rule does not remove a tag that already exists on the registry.
+# The local gh token lacks delete:packages, so this does it with the workflow's
+# own GITHUB_TOKEN instead.
+#
+# Safety: GHCR tags are pointers to package versions, so deleting the wrong
+# version takes `latest` down with it. Only a version whose tags are exactly
+# ["master"] is deleted; anything holding latest, a semver, or a sha tag is
+# reported and left alone.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const pkgs = ['comfyui-docker', 'comfyui-docker-mcp'];
+
+            for (const name of pkgs) {
+              let versions;
+              try {
+                const res = await github.rest.packages.listPackageVersionsForPackageOwnedByUser({
+                  package_type: 'container',
+                  package_name: name,
+                  username: owner,
+                  per_page: 100,
+                });
+                versions = res.data;
+              } catch (err) {
+                core.setFailed(`${name}: cannot list versions: ${err.message}`);
+                continue;
+              }
+
+              let deleted = 0;
+              for (const v of versions) {
+                const tags = v.metadata?.container?.tags ?? [];
+                if (tags.length === 1 && tags[0] === 'master') {
+                  try {
+                    await github.rest.packages.deletePackageVersionForUser({
+                      package_type: 'container',
+                      package_name: name,
+                      username: owner,
+                      package_version_id: v.id,
+                    });
+                    core.info(`DELETED ${name} version ${v.id} tags=${JSON.stringify(tags)}`);
+                    deleted++;
+                  } catch (err) {
+                    core.setFailed(`${name}: cannot delete version ${v.id}: ${err.message}`);
+                  }
+                } else {
+                  core.info(`kept    ${name} version ${v.id} tags=${JSON.stringify(tags)}`);
+                }
+              }
+              core.info(`${name}: deleted ${deleted} master-tagged version(s)`);
+            }
