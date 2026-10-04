@@ -104,8 +104,11 @@ jobs:
           # a semver tag still moves it alongside its own pinned tag. Prereleases
           # (v1.1.0-rc1) stay off `latest` -- latest=auto keeps that. Use the
           # sha- and semver-pinned tags when you need a reproducible image.
+          # No branch-named tag (no `master`): a branch tag is a second moving
+          # tag for the same commit, and two moving tags is exactly how a
+          # deployment ends up pinned to one of them by accident. `latest` is
+          # the only floating tag; the rest are immutable pins.
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
             # The leading v is part of the output so pushing git tag v1.0.0
             # publishes image tag v1.0.0. Plain {{version}} strips it and would
@@ -244,8 +247,9 @@ jobs:
           # Reproducible builds are served by the sha- and semver-pinned tags.
           flavor: |
             latest=false
+          # No branch-named tag (no `master`), for the same reason as the
+          # ComfyUI image job above.
           tags: |
-            type=ref,event=branch
             type=semver,pattern=v{{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
