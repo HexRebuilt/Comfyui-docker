@@ -85,6 +85,40 @@ involved.
 claude mcp add comfy-mcp -- docker compose --profile mcp run --rm -T comfy-mcp
 ```
 
+### opencode
+
+opencode's `mcp` block cannot hold a `docker compose run` pipeline: `command`
+must be an array of arguments, and that pipeline is not one. Point it at the
+HTTP bridge instead, which is just a URL.
+
+`~/.config/opencode/opencode.jsonc` (or `.json`), alongside your other servers:
+
+```jsonc
+{
+  "mcp": {
+    "comfyui": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8081/mcp",
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}
+```
+
+`type` is required, and opencode rejects the whole config at startup rather than
+half-working — a typo here means it will not launch at all. No `headers` block:
+the bridge is loopback-only and needs no token by default. If you ever set
+`MCP_BIND_ADDR` to a non-loopback address, add
+`"headers": { "Authorization": "Bearer YOUR_TOKEN" }`.
+
+The config is read once at startup and is **not** hot-reloaded, so quit and
+restart opencode after editing it. `opencode mcp list` prints `connected` per
+server, which is the quickest confirmation that the bridge is reachable.
+
+This needs the bridge running. See `COMPOSE_PROFILES` above to have a plain
+`docker compose up -d` start it.
+
 ### Claude Desktop
 
 `claude_desktop_config.json`:
@@ -234,22 +268,34 @@ known-current version without any risk of swapping code underneath a live
 conversation. That is the meaningful difference from the ComfyUI image, which is
 a single long-running process and updates in place.
 
-Both images tag `latest` the same way:
+Both images publish exactly one tag, `latest`, which moves on every merge to the
+default branch. That is the tag compose pins and the tag watchtower compares, so
+a daily watchtower poll picks up new images with no change on your side.
 
-| Image | `latest` means |
-|-------|----------------|
-| `comfyui-docker` | newest build of `master` (moved by every merge) |
-| `comfyui-docker-mcp` | newest build of `master`, including the weekly refresh |
+This was not always so. `comfyui-docker` used to publish `latest` only when a
+`v*` release tag was pushed, on the reasoning that a release should never
+silently swap the code an agent drives mid-session. In practice it just left the
+stack behind: between releases, `docker compose pull` and watchtower fetched
+nothing new, and `latest` still shipped `comfy-kitchen 0.2.36` against an
+upstream requirement of `0.2.37`. The branch, semver and `sha-` tags that
+briefly sat alongside `latest` have all been removed for the same reason — every
+extra tag is another way to be pinned to the wrong image. Pin by digest if you
+need reproducibility.
 
-This was not always so, and it is the only tag either image publishes now.
-`comfyui-docker` used to publish `latest` only when a `v*` release tag was
-pushed, on the reasoning that a release should never silently swap the code an
-agent drives mid-session. In practice it just left the stack behind: between
-releases, `docker compose pull` and watchtower fetched nothing new, and `latest`
-still shipped `comfy-kitchen 0.2.36` against an upstream requirement of `0.2.37`.
-The branch, semver and `sha-` tags that briefly sat alongside `latest` have all
-been removed for the same reason — every extra tag is another way to be pinned to
-the wrong image. Pin by digest if you need reproducibility.
+Three watchtower-specific things worth knowing:
+
+- **The images are public.** `docker pull` works with no `docker login`, so
+  watchtower needs no registry credentials. A private package would make its
+  poll fail with 401 and silently never update.
+- **Watchtower recreates a container from its stored config, not from
+  `docker-compose.yml`.** If you change env vars, mounts or the healthcheck in
+  compose, watchtower's recreated container will not have them. Run
+  `docker compose up -d` yourself after editing compose; editing the file and
+  waiting for watchtower does nothing.
+- **The bridge is optional, so watchtower only sees it once it exists.** Watchtower
+  updates running containers, not absent ones. It has `restart: unless-stopped`,
+  so Docker restarts it on boot, but a first `docker compose up -d` without the
+  profile will not create it. Set `COMPOSE_PROFILES=mcp-http` in `.env` for that.
 
 ## Option B: on the host
 

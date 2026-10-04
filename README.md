@@ -261,13 +261,22 @@ the container. To reach it from another machine there is an optional HTTP
 bridge (upstream comfy-mcp is stdio-only):
 
 ```bash
-echo "MCP_AUTH_TOKEN=$(openssl rand -hex 24)" >> .env
 docker compose --profile mcp-http up -d comfy-mcp-http   # 127.0.0.1:8081
 ```
 
-That port is **loopback-only by default and requires a token** — it is a
-authenticated remote shell for your GPU. See the security notes in
-[docs/MCP.md](docs/MCP.md) before binding it anywhere else.
+No token is needed for that: the port is published on loopback, so nothing
+off the machine can reach it. Publishing it further requires a token, and the
+bridge refuses to start without one rather than exposing the GPU by accident:
+
+```bash
+echo "MCP_AUTH_TOKEN=$(openssl rand -hex 24)" >> .env
+echo "MCP_BIND_ADDR=0.0.0.0"                           >> .env
+docker compose --profile mcp-http up -d comfy-mcp-http
+```
+
+To skip the `--profile` flag on every `up`, set `COMPOSE_PROFILES=mcp-http` in
+`.env`. See the security notes in [docs/MCP.md](docs/MCP.md) before binding it
+anywhere else.
 
 It ships as its own 216 MB image (no CUDA, no GPU), so it is not baked into the
 11 GB ComfyUI one:
