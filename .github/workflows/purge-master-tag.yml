@@ -23,16 +23,14 @@ jobs:
       - uses: actions/github-script@v7
         with:
           script: |
-            const owner = context.repo.owner;
             const pkgs = ['comfyui-docker', 'comfyui-docker-mcp'];
 
             for (const name of pkgs) {
               let versions;
               try {
-                const res = await github.rest.packages.listPackageVersionsForPackageOwnedByUser({
+                const res = await github.rest.packages.listPackageVersionsForPackageOwnedByAuthenticatedUser({
                   package_type: 'container',
                   package_name: name,
-                  username: owner,
                   per_page: 100,
                 });
                 versions = res.data;
@@ -46,10 +44,9 @@ jobs:
                 const tags = v.metadata?.container?.tags ?? [];
                 if (tags.length === 1 && tags[0] === 'master') {
                   try {
-                    await github.rest.packages.deletePackageVersionForUser({
+                    await github.rest.packages.deletePackageVersionForAuthenticatedUser({
                       package_type: 'container',
                       package_name: name,
-                      username: owner,
                       package_version_id: v.id,
                     });
                     core.info(`DELETED ${name} version ${v.id} tags=${JSON.stringify(tags)}`);
