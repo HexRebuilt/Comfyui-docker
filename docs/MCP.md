@@ -227,14 +227,15 @@ Both images tag `latest` the same way:
 | `comfyui-docker` | newest build of `master` (moved by every merge) |
 | `comfyui-docker-mcp` | newest build of `master`, including the weekly refresh |
 
-This was not always so. `comfyui-docker` used to publish `latest` only when a
-`v*` release tag was pushed, on the reasoning that a release should never
-silently swap the code an agent drives mid-session. In practice it just left the
-stack behind: between releases, `docker compose pull` and watchtower fetched
-nothing new, and `latest` still shipped `comfy-kitchen 0.2.36` against an
-upstream requirement of `0.2.37`. Both images now move `latest` on every
-default-branch push, and both additionally publish immutable `vX.Y.Z` and
-`sha-abcdef1` tags for anyone who needs a pinned, reproducible image.
+This was not always so, and it is the only tag either image publishes now.
+`comfyui-docker` used to publish `latest` only when a `v*` release tag was
+pushed, on the reasoning that a release should never silently swap the code an
+agent drives mid-session. In practice it just left the stack behind: between
+releases, `docker compose pull` and watchtower fetched nothing new, and `latest`
+still shipped `comfy-kitchen 0.2.36` against an upstream requirement of `0.2.37`.
+The branch, semver and `sha-` tags that briefly sat alongside `latest` have all
+been removed for the same reason — every extra tag is another way to be pinned to
+the wrong image. Pin by digest if you need reproducibility.
 
 ## Option B: on the host
 

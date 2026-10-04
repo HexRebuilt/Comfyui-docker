@@ -46,18 +46,24 @@ ghcr.io/hexrebuilt/comfyui-docker:latest
 no useful arm64 target for that: aarch64 Jetson needs a different base image
 (`nvcr.io/nvidia/l4t`) and Apple Silicon cannot run CUDA at all.
 
-Tags follow the metadata-action convention: branch names, `vX.Y.Z` semver tags,
-`sha-abcdef1` for a specific commit, and `latest` for the newest build of the
-default branch.
+**`latest` is the only tag published.** It moves on every merge to `master`,
+which is what makes `docker compose pull` and watchtower pick up new work.
 
-**`latest` is the tag to run.** It moves on every merge to `master`, which is
-what makes `docker compose pull` and watchtower actually pick up new work. It
-used to mean "newest release" and only moved on a semver tag; that left the
-stack on a stale image in between — the `v1.0.1` image still carried
-`comfy-kitchen 0.2.36` while upstream required `0.2.37`, and ComfyUI logged a
-version warning on every boot. Use `sha-abcdef1` or a `vX.Y.Z` tag when you need
-a reproducible image instead. Prereleases (`v1.1.0-rc1`) deliberately do not
-move `latest`.
+There used to be more: a branch-named `master` tag, `vX.Y.Z` semver tags and
+`sha-abcdef1` commit tags. All are gone, because every extra tag is another way
+for a deployment to end up pinned to the wrong image — and that is exactly what
+happened. `latest` was gated on a release tag, so between releases it sat still
+while `master` moved, and the stack ran a stale image that still carried
+`comfy-kitchen 0.2.36` against an upstream requirement of `0.2.37`. One tag
+means "which image is this?" always has one answer.
+
+Need a reproducible image? Pin by digest rather than by tag:
+
+```bash
+docker pull ghcr.io/hexrebuilt/comfyui-docker@sha256:<digest>
+```
+
+A digest is immutable and unaffected by this policy.
 
 Each published image carries an SBOM and a build provenance attestation. To
 verify provenance:

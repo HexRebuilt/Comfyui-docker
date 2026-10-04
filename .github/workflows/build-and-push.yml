@@ -88,36 +88,23 @@ jobs:
         uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # `latest` tracks the default branch, matching the MCP image below.
+          # `latest` is the ONLY tag this image publishes.
           #
-          # It used to mean "newest release": latest=auto's default, where a
-          # semver tag sets it but a branch push does not. That was wrong here.
-          # This deployment pins `latest` in docker-compose.yml and watches that
-          # same tag with watchtower, so the tag that must always move is
-          # `latest`. Gating it on a release left the stack on a stale image in
-          # between: v1.0.1 still carried comfy-kitchen 0.2.36 while upstream
-          # wanted 0.2.37, and ComfyUI logged "lower than the recommended
-          # version" on every boot with no way to get the fix without cutting a
-          # release.
+          # It previously also published a branch-named tag (`master`), semver
+          # tags and `sha-<short>` tags. Every extra tag was a way for a
+          # deployment to end up pinned to the wrong thing, and it had already
+          # happened: `latest` was frozen on a release while `master` tracked
+          # master, so the stack ran a stale image (comfy-kitchen 0.2.36 against
+          # an upstream requirement of 0.2.37) and ComfyUI warned on every boot.
+          # With more than one tag in circulation, "which image is this?" stops
+          # having one answer, and watchtower compares digests of whatever tag a
+          # container was created from.
           #
-          # A branch push to the default branch therefore also sets `latest`, and
-          # a semver tag still moves it alongside its own pinned tag. Prereleases
-          # (v1.1.0-rc1) stay off `latest` -- latest=auto keeps that. Use the
-          # sha- and semver-pinned tags when you need a reproducible image.
-          # No branch-named tag (no `master`): a branch tag is a second moving
-          # tag for the same commit, and two moving tags is exactly how a
-          # deployment ends up pinned to one of them by accident. `latest` is
-          # the only floating tag; the rest are immutable pins.
+          # So: one tag, one meaning, always the newest default-branch build.
+          # Pinning is a deployment concern -- use a digest
+          # (ghcr.io/hexrebuilt/comfyui-docker@sha256:...) if you need one, which
+          # is immutable and unaffected by this policy.
           tags: |
-            type=ref,event=pr
-            # The leading v is part of the output so pushing git tag v1.0.0
-            # publishes image tag v1.0.0. Plain {{version}} strips it and would
-            # publish 1.0.0, which nobody types.
-            type=semver,pattern=v{{version}}
-            # Minor-tracking float: v1.0.1 also moves 1.0.
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short
-            # What actually moves `latest` on every default-branch push.
             type=raw,value=latest,enable={{is_default_branch}}
 
       # amd64 only, deliberately.
@@ -242,19 +229,15 @@ jobs:
           #     on tags while the MCP image moved it on every default-branch push,
           #     so the two services in one stack could sit on different policies.
           #
-          # So both images now behave identically: `latest` = newest default
-          # branch, and semver tags additionally publish their own pinned tags.
-          # Reproducible builds are served by the sha- and semver-pinned tags.
+          # So both images behave identically and publish exactly one tag:
+          # `latest` = newest default-branch build. `latest=false` keeps
+          # metadata-action's latest=auto from *also* setting latest on a semver
+          # tag push, which would let a git release quietly repoint the tag.
           flavor: |
             latest=false
-          # No branch-named tag (no `master`), for the same reason as the
-          # ComfyUI image job above.
+          # Covers the weekly schedule too: a schedule run's ref is the default
+          # branch, so is_default_branch is true there.
           tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short
-            # Covers the weekly schedule too: a schedule run's ref is the
-            # default branch, so is_default_branch is true there.
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
