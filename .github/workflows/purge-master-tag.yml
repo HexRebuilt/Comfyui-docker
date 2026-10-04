@@ -28,11 +28,10 @@ jobs:
             for (const name of pkgs) {
               let versions;
               try {
-                const res = await github.rest.packages.listPackageVersionsForPackageOwnedByAuthenticatedUser({
-                  package_type: 'container',
-                  package_name: name,
-                  per_page: 100,
-                });
+                const res = await github.request(
+                  'GET /user/packages/container/{package_name}/versions',
+                  { package_name: name, per_page: 100 }
+                );
                 versions = res.data;
               } catch (err) {
                 core.setFailed(`${name}: cannot list versions: ${err.message}`);
@@ -44,11 +43,10 @@ jobs:
                 const tags = v.metadata?.container?.tags ?? [];
                 if (tags.length === 1 && tags[0] === 'master') {
                   try {
-                    await github.rest.packages.deletePackageVersionForAuthenticatedUser({
-                      package_type: 'container',
-                      package_name: name,
-                      package_version_id: v.id,
-                    });
+                    await github.request(
+                      'DELETE /user/packages/container/{package_name}/versions/{package_version_id}',
+                      { package_name: name, package_version_id: v.id }
+                    );
                     core.info(`DELETED ${name} version ${v.id} tags=${JSON.stringify(tags)}`);
                     deleted++;
                   } catch (err) {
