@@ -7,9 +7,11 @@ name: Purge legacy master tag
 # own GITHUB_TOKEN instead.
 #
 # Safety: GHCR tags are pointers to package versions, so deleting the wrong
-# version takes `latest` down with it. Only a version whose tags are exactly
-# ["master"] is deleted; anything holding latest, a semver, or a sha tag is
-# reported and left alone.
+# version takes `latest` down with it. The guard is therefore explicit rather
+# than an exact-match: a version is deleted only when it carries `master` AND
+# does NOT carry `latest`. In practice `master` shared its version with the
+# intermediate sha-ccf0db7 tag, which is why an exact ["master"] match found
+# nothing; deleting the pair is safe because `latest` lives on its own version.
 on:
   workflow_dispatch:
 permissions:
@@ -40,12 +42,8 @@ jobs:
 
               let deleted = 0;
               for (const v of versions) {
-                const t = v.metadata?.container?.tags ?? [];
-                if (t.includes('master')) core.info(`HAS-MASTER ${name} id=${v.id} tags=${JSON.stringify(t)}`);
-              }
-              for (const v of versions) {
                 const tags = v.metadata?.container?.tags ?? [];
-                if (tags.length === 1 && tags[0] === 'master') {
+                if (tags.includes('master') && !tags.includes('latest')) {
                   try {
                     await github.request(
                       'DELETE /user/packages/container/{package_name}/versions/{package_version_id}',
