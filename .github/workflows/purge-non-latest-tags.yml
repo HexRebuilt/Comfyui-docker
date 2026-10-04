@@ -1,0 +1,67 @@
+name: Purge non-latest image tags
+
+# One-off cleanup. The workflow now publishes exactly one tag, `latest`
+# (c140618 removed the semver and sha-<short> tags; e0bd794 removed the
+# branch-named master tag). Removing a tag rule does not remove tags that
+# already exist, so the registry still carries ~35 versions per package:
+# master, 1.0, 1.0.0, v1.0.0, v1.0.1 and every sha-* pin.
+#
+# GHCR tags are pointers to package versions and cannot be deleted individually,
+# so this deletes whole versions. The guard is therefore the only thing standing
+# between this workflow and taking `latest` offline: a version is deleted only
+# when its tag list does NOT contain `latest`. Nothing else is trusted.
+#
+# Needs GITHUB_TOKEN because the local gh token lacks read:packages, let alone
+# delete:packages.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pkgs = ['comfyui-docker', 'comfyui-docker-mcp'];
+
+            for (const name of pkgs) {
+              const res = await github.request(
+                'GET /user/packages/container/{package_name}/versions',
+                { package_name: name, per_page: 100 }
+              );
+              const versions = res.data;
+
+              const latestVersions = versions.filter((v) =>
+                (v.metadata?.container?.tags ?? []).includes('latest')
+              );
+              if (latestVersions.length !== 1) {
+                core.setFailed(
+                  `${name}: expected exactly 1 version holding latest, found ` +
+                    `${latestVersions.length}. Refusing to delete anything.`
+                );
+                continue;
+              }
+              const keepId = latestVersions[0].id;
+              core.info(`${name}: keeping version ${keepId} (holds latest)`);
+
+              let deleted = 0;
+              for (const v of versions) {
+                if (v.id === keepId) continue;
+                const tags = v.metadata?.container?.tags ?? [];
+                try {
+                  await github.request(
+                    'DELETE /user/packages/container/{package_name}/versions/{package_version_id}',
+                    { package_name: name, package_version_id: v.id }
+                  );
+                  core.info(`DELETED ${name} ${v.id} tags=${JSON.stringify(tags)}`);
+                  deleted++;
+                } catch (err) {
+                  core.setFailed(`${name}: cannot delete ${v.id}: ${err.message}`);
+                }
+              }
+              core.info(`${name}: deleted ${deleted}, kept 1 (latest)`);
+            }
