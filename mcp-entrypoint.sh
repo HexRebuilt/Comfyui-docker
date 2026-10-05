@@ -38,6 +38,14 @@ sys.exit(0 if s.connect_ex(('${MCP_LOOPBACK_HOST:-127.0.0.1}', ${MCP_LOOPBACK_PO
         fi
         sleep 0.1
     done
+
+    # Say so here if the alias died. Otherwise comfy-cli fails much later with a
+    # connection error that looks like ComfyUI being down.
+    if ! kill -0 "${LOOPBACK_PID}" 2>/dev/null; then
+        log "loopback alias is not running; node tools will fail"
+    fi
+    # On any path out of this script other than exec, take the alias with us.
+    trap 'kill "${LOOPBACK_PID}" 2>/dev/null || true' EXIT
 fi
 
 # Point comfy-cli at the baked ComfyUI workspace. Done here as the runtime user
