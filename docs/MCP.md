@@ -76,8 +76,9 @@ docker compose --profile mcp run --rm comfy-mcp
 ```
 
 To drive it from an MCP client, give the client a `docker compose run` command.
-It reaches ComfyUI by service name over the compose network, so no host port is
-involved.
+It reaches ComfyUI over host networking, at `127.0.0.1:8188` — see
+[Node introspection](#node-introspection-and-the-loopback-requirement) for why
+that is not just the service name.
 
 ### Claude Code
 
@@ -426,49 +427,58 @@ local files, which a container deliberately does not expose:
 | `download_model` | Writes to the CLI's own workspace models dir, **not** the container's `./models`. See below. |
 | `nodes`, `node_dependencies`, `workflow_deps` | Need ComfyUI-Manager's `cm_cli` module. See below. |
 
-### Node introspection: an upstream limitation
+### Node introspection, and the loopback requirement
 
-`nodes` and friends are the one group that cannot work here, and the reason is
-worth being precise about rather than hand-waving.
+`nodes` works, but only because of a non-obvious networking decision, so it is
+worth writing down what broke first.
 
-`comfy-mcp` bundles a ComfyUI workspace so `comfy which` and every command that
-resolves a path have something to resolve — that part works. Node listing then
-fails with:
+It failed with:
 
 ```
-ComfyUI-Manager not found. 'cm-cli' command is not available.
+cql_no_graph: Refusing to fetch object_info from non-loopback host 'comfyui'
+in local mode (potential SSRF). Use --where cloud for remote targets.
 ```
 
-comfy-cli probes for the `cm_cli` **module** (it runs `python -c "import
-cm_cli"`), but current ComfyUI-Manager ships `cm-cli.py`, a hyphenated script,
-not an importable `cm_cli` package. Running that script directly instead needs
-ComfyUI-Manager's own requirements, which include `transformers` and
-`matrix-nio` — a large install for an image that otherwise needs neither.
+comfy-cli fetches `/object_info` for node listing and applies an SSRF guard: in
+local mode the host must be loopback. `is_loopback_host()` in
+`comfy_cli/cql/_net.py` accepts the literal string `localhost` or an address
+`ipaddress` classifies as loopback, and it deliberately does **not** resolve
+names. So a compose service name is refused, and so is a container IP. There is
+no environment variable or flag to relax it.
 
-It is also not worth forcing. Node listing through a workspace reports the node
-classes in the **baked checkout**, not the ones your running ComfyUI actually
-has. Any custom node you installed in the `comfyui` container would be invisible
-to it, so a green `nodes` result would be quietly misleading.
+The fix is to give the MCP containers a loopback address, which means host
+networking (`network_mode: host`). Both MCP services therefore talk to ComfyUI
+at `http://127.0.0.1:8188` — the host-published port — instead of over the
+compose network. Two consequences to be aware of:
 
-For the authoritative answer, ask the running server directly. This container
-publishes `/object_info`, which lists every node class the live ComfyUI can
-execute:
+- If you change the `comfyui` port mapping, change `COMFYUI_URL` and
+  `COMFY_LOCAL_URL` in both MCP services to match. They are no longer resolved
+  by service name.
+- `comfy-mcp-http` has no `ports:` mapping any more. With host networking the
+  bridge binds the host directly, so `MCP_BIND_ADDR` is the address it binds
+  (loopback by default) rather than a host-side publish address.
+
+With that in place `nodes` reports against the **running** server, so it lists
+the node classes your ComfyUI can actually execute, including custom nodes:
 
 ```bash
-curl -s http://127.0.0.1:8188/object_info | jq 'keys | length'    # 963 here
+docker exec comfyui-docker-comfy-mcp-http-1 comfy nodes list   # 963 classes here
 ```
 
-If upstream fixes the `cm_cli` expectation, this becomes moot; the workspace
-already in the image means only that one probe needs to start passing.
+A caveat that is unchanged: `system_stats` and `free_memory` are not redirected
+by `COMFYUI_URL` — they describe whichever ComfyUI comfy-cli targets. They are
+correct here, but do not gate a remote run on them. And because the server's
+model directory and the MCP container's are different directories,
+`download_model` will not put files where ComfyUI can see them. Download into
+`./models` on the host, or use ComfyUI's own Manager in the UI.
 
-Two documented quirks worth knowing:
+Two tools still do not work, for reasons unrelated to networking:
 
-- `system_stats` and `free_memory` are **not** redirected by `COMFYUI_URL`; they
-  describe whichever ComfyUI `comfy-cli` targets. On this setup they happened to
-  be correct, but do not gate a remote run on them.
-- Because the server's model dir and the container's are different directories,
-  `download_model` will not put files where the container can see them. Download
-  into `./models` on the host, or use ComfyUI's own Manager in the UI.
+- `workflow_deps` needs ComfyUI-Manager inside the ComfyUI container. This
+  repository does not install Manager, so there is nothing for it to query.
+- `list_workflow_slots` and `list_workflow_notes` need a frontend-format
+  workflow and reject an API-format export by design
+  (`workflow_not_frontend_format`). Use `fetch_template`, which returns one.
 
 ### Getting models in
 

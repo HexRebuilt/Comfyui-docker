@@ -294,8 +294,10 @@ It ships as its own 216 MB image (no CUDA, no GPU), so it is not baked into the
 ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
 ```
 
-Point an MCP client at the compose service — it reaches ComfyUI by service name,
-with no host port involved:
+Point an MCP client at the compose service. It reaches ComfyUI over host
+networking at `127.0.0.1:8188` rather than by service name, because comfy-cli
+refuses to fetch `/object_info` from a non-loopback host — see
+[docs/MCP.md](docs/MCP.md#node-introspection-and-the-loopback-requirement):
 
 ```bash
 docker compose --profile mcp pull
