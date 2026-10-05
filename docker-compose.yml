@@ -92,23 +92,19 @@ services:
     # Use it as:  docker compose --profile mcp run --rm comfy-mcp
     # which attaches stdin, which is how an MCP client talks to it.
     # For network access use the comfy-mcp-http service further below.
-    # Host networking so ComfyUI is reachable at a LOOPBACK address.
-    #
-    # comfy-cli refuses to fetch /object_info from a non-loopback host in local
-    # mode ("Refusing to fetch object_info from non-loopback host ... potential
-    # SSRF"), and is_loopback_host() only accepts the literal `localhost` or a
-    # 127.x address -- it does not resolve names. A compose service name and the
-    # container's IP are therefore both refused, which broke `nodes` outright.
-    # Sharing the host network namespace puts ComfyUI's published port on
-    # 127.0.0.1, which satisfies the guard with no upstream change.
-    #
-    # Cost: this now depends on the host-published 8188 rather than talking over
-    # the compose network. If you change the comfyui port mapping, change
-    # COMFYUI_URL below to match.
-    network_mode: host
+    # Stays on the compose network. comfy-cli needs ComfyUI on a LOOPBACK address
+    # (it refuses to fetch /object_info from a non-loopback host, and does not
+    # resolve names, so the service name `comfyui` is refused too), which the
+    # entrypoint's loopback alias provides -- see mcp-loopback-proxy.py. That
+    # keeps this service off the host's interfaces and its ports declared here,
+    # rather than reaching for network_mode: host.
     environment:
       COMFYUI_URL: http://127.0.0.1:8188
       COMFY_LOCAL_URL: http://127.0.0.1:8188
+      MCP_LOOPBACK_HOST: 127.0.0.1
+      MCP_LOOPBACK_PORT: "8188"
+      COMFY_UPSTREAM_HOST: comfyui
+      COMFY_UPSTREAM_PORT: "8188"
       # Upgrade comfy-mcp / comfy-cli to the latest PyPI release at startup.
       # On by default. Set false in .env to pin to whatever the image ships.
       AUTO_UPDATE: "${AUTO_UPDATE:-true}"
@@ -139,27 +135,31 @@ services:
   comfy-mcp-http:
     image: ghcr.io/hexrebuilt/comfyui-docker-mcp:latest
     profiles: ["mcp-http"]
-    entrypoint: ["/usr/local/bin/mcp-http-bridge.py"]
     depends_on:
       comfyui:
         condition: service_healthy
-    # Host networking, same reason as the stdio service above: comfy-cli needs
-    # ComfyUI on a loopback address or it refuses to fetch object_info.
-    #
-    # It also means NO `ports:` mapping -- the bridge binds the host's interfaces
-    # directly, so MCP_BIND_ADDR now names the address it binds rather than a
-    # host-side publish address. Loopback-only by default, as before.
-    network_mode: host
+    # Note: no `entrypoint:` override. Going through mcp-entrypoint.sh means the
+    # HTTP bridge gets the same startup refresh and loopback alias as the stdio
+    # path; MCP_TRANSPORT=http below is what selects the bridge.
+    ports:
+      # Loopback only by default. Change MCP_BIND_ADDR to 0.0.0.0 to expose it
+      # on the LAN -- and read the Security section of docs/MCP.md first.
+      - "${MCP_BIND_ADDR:-127.0.0.1}:${MCP_HTTP_PORT:-8081}:8081"
     environment:
+      MCP_TRANSPORT: http
       COMFYUI_URL: http://127.0.0.1:8188
       COMFY_LOCAL_URL: http://127.0.0.1:8188
-      # With host networking the bridge binds the host directly, so the bind
-      # address IS the exposure. MCP_PUBLIC_BIND is kept as the explicit input
-      # to the token policy: non-loopback there means the bridge refuses to
-      # start without MCP_AUTH_TOKEN.
-      MCP_HTTP_HOST: "${MCP_BIND_ADDR:-127.0.0.1}"
+      MCP_LOOPBACK_HOST: 127.0.0.1
+      MCP_LOOPBACK_PORT: "8188"
+      COMFY_UPSTREAM_HOST: comfyui
+      COMFY_UPSTREAM_PORT: "8188"
+      # Inside the container we must bind 0.0.0.0 for the published port to
+      # reach us. That is NOT what decides exposure, so the real host-side bind
+      # is passed separately and the bridge requires a token only when it is
+      # non-loopback.
+      MCP_HTTP_HOST: 0.0.0.0
       MCP_PUBLIC_BIND: "${MCP_BIND_ADDR:-127.0.0.1}"
-      MCP_HTTP_PORT: "${MCP_HTTP_PORT:-8081}"
+      MCP_HTTP_PORT: "8081"
       # Not enforced with ${VAR:?...} on purpose: compose interpolates every
       # service regardless of profile, so requiring it here would break a plain
       # `docker compose up` for anyone who never wants the HTTP bridge. The

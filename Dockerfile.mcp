@@ -91,6 +91,7 @@ ENV HOME=/home/comfy \
 
 COPY --chmod=0755 mcp-entrypoint.sh /usr/local/bin/mcp-entrypoint.sh
 COPY --chmod=0755 mcp-http-bridge.py /usr/local/bin/mcp-http-bridge.py
+COPY --chmod=0755 mcp-loopback-proxy.py /usr/local/bin/mcp-loopback-proxy.py
 
 # The startup updater reinstalls comfy-mcp and comfy-cli, and pip replaces more
 # than the package: it also rewrites the console scripts in /usr/local/bin. Both
