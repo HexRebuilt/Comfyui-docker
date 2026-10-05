@@ -57,6 +57,15 @@ while `master` moved, and the stack ran a stale image that still carried
 `comfy-kitchen 0.2.36` against an upstream requirement of `0.2.37`. One tag
 means "which image is this?" always has one answer.
 
+**Do not re-run an old Build and Push.** Because `latest` tracks the default
+branch rather than a release, re-running the workflow for a superseded commit
+rebuilds that older tree and re-pushes it as `latest` — moving the tag backwards
+to an image that predates later fixes, and out from under any container
+watchtower has already updated to. It is the one genuinely new hazard of this
+tagging policy: under the old release-gated scheme a stale re-run was harmless.
+If a run fails for a reason unrelated to the image (a flaky scan, a cancelled
+job), fix forward on a new commit instead.
+
 Need a reproducible image? Pin by digest rather than by tag:
 
 ```bash
